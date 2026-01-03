@@ -194,6 +194,22 @@
 
 ---
 
+### Phase 6: Testing & Documentation 📚
+**Target:** v0.6.0 | **Status:** ✅ Complete
+
+| Task | Status | Priority |
+|------|--------|----------|
+| Create pytest test suite for optimizer | ✅ | 🔴 Critical |
+| Create tests for credit card rewards | ✅ | 🔴 Critical |
+| Create tests for API endpoints | ✅ | 🔴 Critical |
+| Write comprehensive API documentation | ✅ | 🟡 Medium |
+| Write features/user guide documentation | ✅ | 🟡 Medium |
+| Verify tests run in Docker containers | ✅ | 🟡 Medium |
+
+**Milestone:** ✅ 70+ test cases and full API/features documentation
+
+---
+
 ### Branch: `feature/phase4-sovereign-features`
 **Created:** 2026-01-04  
 **Merged:** Open  
@@ -209,6 +225,7 @@
 | `19d8ff0` | 2026-01-04 | 1 file | Clarify credit card rewards are optional |
 | `642c106` | 2026-01-04 | 1 file | Update roadmap with Phase 4 details |
 | `866c0d2` | 2026-01-03 | 3 files | Frontend integration with Net Price Optimizer |
+| `4ade820` | 2026-01-03 | 6 files | Comprehensive test suite and API documentation |
 
 #### Files Created (Phase 4):
 - `intelligence-core/vision/parser.py` – PDF/receipt parsing with LLaVA
@@ -227,6 +244,14 @@
 #### Files Modified (Phase 5):
 - `app-frontend/main.py` – Complete rewrite with Net Price Finder UI
 - `intelligence-core/optimizer/__init__.py` – Module exports
+
+#### Files Created (Phase 6 - Testing & Documentation):
+- `intelligence-core/tests/__init__.py` – Test suite initialization
+- `intelligence-core/tests/test_net_price.py` – 25+ test cases for optimizer
+- `intelligence-core/tests/test_rewards.py` – 20+ test cases for card rewards
+- `intelligence-core/tests/test_api.py` – 25+ test cases for API endpoints
+- `docs/API.md` – Comprehensive API endpoint documentation
+- `docs/FEATURES.md` – User guide and architecture documentation
 
 #### Key Design Decisions:
 1. **Credit card rewards are OPTIONAL** – Only user's actual cards are used
@@ -312,5 +337,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-03</em>
+  <em>Last updated: 2026-01-03 (Testing & Documentation Phase Complete)</em>
 </p>

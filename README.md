@@ -52,10 +52,18 @@ NetPrice-Finder/
 │   ├── vision/
 │   │   ├── __init__.py            # Module exports
 │   │   └── parser.py              # PDF/receipt parser
+│   ├── tests/                     # Pytest test suite
+│   │   ├── __init__.py            # Test package init
+│   │   ├── test_net_price.py      # Optimizer tests (25+)
+│   │   ├── test_rewards.py        # Card reward tests (20+)
+│   │   └── test_api.py            # API endpoint tests (25+)
 │   ├── prompts/
 │   │   └── router.yaml            # Tool definitions
 │   └── tools/
 │       └── router.py              # Semantic router
+├── docs/                          # Documentation
+│   ├── API.md                     # API endpoint documentation
+│   └── FEATURES.md                # Features guide & architecture
 ├── configs/                       # Service configurations
 ├── scripts/
 │   ├── start.sh                   # Linux/Mac quick start
@@ -148,9 +156,36 @@ open http://localhost:8080
 
 ## 📚 Documentation
 
+- [docs/API.md](docs/API.md) – API endpoint reference with examples
+- [docs/FEATURES.md](docs/FEATURES.md) – Feature guide & architecture overview
 - [ROADMAP.md](ROADMAP.md) – Version history & planned features
 - [research.txt](research.txt) – Full architectural specification
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) – Development workflow
+
+---
+
+## 🧪 Running Tests
+
+Tests are designed to run inside Docker containers:
+
+```bash
+# Enter the intelligence-core container
+docker compose exec intelligence-core bash
+
+# Install test dependencies
+pip install pytest pytest-asyncio httpx
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_net_price.py -v
+```
+
+**Test Coverage:**
+- `test_net_price.py` – 25+ tests for the Net Price Optimizer
+- `test_rewards.py` – 20+ tests for credit card reward system
+- `test_api.py` – 25+ tests for all API endpoints
 
 ---
 
