@@ -24,7 +24,7 @@
 **Started:** 2026-01-03  
 **Target Completion:** 2026-01-06
 
-### Branch: `main`
+### Branch: `feature/docker-infrastructure`
 **Created:** 2026-01-03  
 **Merged:** Open  
 **Purpose:** Initial project setup and Docker infrastructure
@@ -33,8 +33,7 @@
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
-| `init-docs` | 2026-01-03 | `README.md`, `ROADMAP.md`, `.github/copilot-instructions.md` | Project documentation and Copilot workflow |
-| `docker-skeleton` | 2026-01-03 | 12 files | Complete Docker infrastructure with GPU support |
+| `35f48e0` | 2026-01-03 | 18 files | Complete Docker infrastructure skeleton |
 
 #### Session: 2026-01-03 (Latest)
 
@@ -53,11 +52,10 @@
 - `scripts/start.sh` – Linux/Mac quick start script
 - `scripts/start.ps1` – Windows PowerShell quick start script
 - `configs/.gitkeep` – Placeholder for configuration files
+- `.github/copilot-instructions.md` – Git workflow automation for Copilot
 
 **Files Modified:**
-- `.github/copilot-instructions.md` – Added comprehensive workflow instructions
-- `README.md` – Updated with full project documentation
-- `ROADMAP.md` – Restructured hierarchy and updated with all changes
+- `README.md` – Updated with full project documentation and structure
 
 ---
 
@@ -65,15 +63,15 @@
 
 | Task | Status | Priority | Branch |
 |------|--------|----------|--------|
-| Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical | `main` |
-| Verify `nvidia-smi` inside Docker container | ⬜ | 🔴 Critical | `main` |
-| Set up NiceGUI Hello World on port 8080 | ✅ | 🔴 Critical | `main` |
-| Create `.env.example` template | ✅ | 🟡 Medium | `main` |
-| Configure Docker network isolation | ✅ | 🟡 Medium | `main` |
-| Create app-frontend Dockerfile | ✅ | 🔴 Critical | `main` |
-| Create scraper-engine Dockerfile | ✅ | 🔴 Critical | `main` |
-| Create intelligence-core router | ✅ | 🟡 Medium | `main` |
-| Create startup scripts | ✅ | 🟢 Low | `main` |
+| Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+| Verify `nvidia-smi` inside Docker container | ⬜ | 🔴 Critical | `feature/docker-infrastructure` |
+| Set up NiceGUI Hello World on port 8080 | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+| Create `.env.example` template | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
+| Configure Docker network isolation | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
+| Create app-frontend Dockerfile | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+| Create scraper-engine Dockerfile | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+| Create intelligence-core router | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
+| Create startup scripts | ✅ | 🟢 Low | `feature/docker-infrastructure` |
 
 **Milestone:** Docker stack running with GPU access confirmed
 
