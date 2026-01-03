@@ -144,7 +144,7 @@
 ---
 
 ### Phase 3: The "Brain" & "Memory" 🧠
-**Target:** v0.4.0 | **Status:** 🔄 In Progress
+**Target:** v0.4.0 | **Status:** ✅ Complete
 
 | Task | Status | Priority |
 |------|--------|----------|
@@ -152,11 +152,11 @@
 | Create semantic router function calling | ✅ | 🔴 Critical |
 | Deploy Firefly III + MariaDB | ✅ | 🔴 Critical |
 | Expose Firefly III on port 8081 | ✅ | 🟡 Medium |
-| Generate Firefly API token | ⬜ | 🟡 Medium |
+| Generate Firefly API token | ✅ | 🟡 Medium |
 | Build Python wrapper for Firefly API | ✅ | 🟡 Medium |
 | Implement intent classification prompts | ✅ | 🟡 Medium |
 
-**Milestone:** User query routes correctly to scraper or ledger
+**Milestone:** ✅ User query routes correctly to scraper or ledger
 
 ---
 
