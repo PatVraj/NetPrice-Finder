@@ -170,9 +170,41 @@
 | Create Credit Card Reward Schema system | ✅ | 🟡 Medium |
 | Build Net Price Optimizer | ✅ | 🔴 Critical |
 | Implement Cashback Monitor scraper | ✅ | 🟡 Medium |
-| Add "Missed Opportunity" reporting | ✅ | 🟢 Low |
+| Clarify credit card rewards are OPTIONAL | ✅ | 🟡 Medium |
 
 **Milestone:** ✅ Full sovereign financial intelligence operational
+
+---
+
+### Branch: `feature/phase4-sovereign-features`
+**Created:** 2026-01-04  
+**Merged:** Open  
+**Purpose:** Net Price Finder - find TRUE cheapest price after all savings stack
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `bbf7279` | 2026-01-04 | 3 files | Vision Parser for PDFs + MCC enrichment |
+| `8e5c8d6` | 2026-01-04 | 4 files | Credit Card Reward Schema + Cashback Monitor |
+| `43c97c2` | 2026-01-04 | 4 files | Net Price Optimizer - core intelligence |
+| `19d8ff0` | 2026-01-04 | 1 file | Clarify credit card rewards are optional |
+
+#### Files Created (Phase 4):
+- `intelligence-core/vision/parser.py` – PDF/receipt parsing with LLaVA
+- `intelligence-core/vision/__init__.py` – Module exports
+- `intelligence-core/rewards/schema.py` – Credit card reward optimization
+- `intelligence-core/rewards/__init__.py` – Module exports
+- `intelligence-core/cashback/monitor.py` – Multi-platform cashback scraping
+- `intelligence-core/cashback/__init__.py` – Module exports
+- `intelligence-core/optimizer/net_price.py` – Net Price Optimizer (core)
+- `intelligence-core/optimizer/__init__.py` – Module exports
+
+#### Key Design Decisions:
+1. **Credit card rewards are OPTIONAL** – Only user's actual cards are used
+2. **Cashback stacking** – Compares 5 platforms: Rakuten, Honey, TopCashback, BeFrugal, Swagbucks
+3. **Coupon finding** – Scrapes coupons from RetailMeNot, Honey, vendor sites
+4. **Net price calculation** – Product - Coupon + Tax - Cashback - Card Rewards = TRUE cost
 
 ---
 
