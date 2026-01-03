@@ -574,17 +574,34 @@ class NetPriceOptimizer:
     """
     The core intelligence that finds the TRUE cheapest price.
     
+    Calculates net cost after stacking:
+    - Cashback platforms (Rakuten, Honey, TopCashback, etc.)
+    - Credit card rewards (OPTIONAL - only if user provides their cards)
+    - Coupon codes (OPTIONAL - requires checkout simulation)
+    - Tax estimation
+    
+    Credit card rewards are ONLY calculated if the user provides their
+    CardWallet. The optimizer will never assume which cards the user has.
+    
     Usage:
-        async with NetPriceOptimizer(card_wallet) as optimizer:
-            result = await optimizer.optimize("https://amazon.com/product/...")
-            print(f"Best net price: ${result.best_option.savings.net_price:.2f}")
-            print(f"Use {result.best_option.recommended_card}")
-            print(f"Through {result.best_option.recommended_cashback}")
+        # Without credit cards (cashback only)
+        async with NetPriceOptimizer() as optimizer:
+            result = await optimizer.optimize("https://nike.com/product/...")
+        
+        # With user's credit cards
+        from intelligence_core.rewards import CardWallet
+        my_wallet = CardWallet()
+        my_wallet.add_card(my_sapphire_preferred)
+        my_wallet.add_card(my_amex_gold)
+        
+        async with NetPriceOptimizer(card_wallet=my_wallet) as optimizer:
+            result = await optimizer.optimize("https://nike.com/product/...")
+            print(f"Use {result.best_option.recommended_card}")  # From YOUR cards
     """
     
     def __init__(
         self,
-        card_wallet: Optional[Any] = None,  # CardWallet from rewards module
+        card_wallet: Optional[Any] = None,  # User's CardWallet (optional)
         enable_coupon_testing: bool = False,  # Disabled by default (slow)
         tax_rate: float = 0.0,  # State sales tax rate
     ):
@@ -592,8 +609,10 @@ class NetPriceOptimizer:
         Initialize the optimizer.
         
         Args:
-            card_wallet: CardWallet with user's credit cards
-            enable_coupon_testing: Whether to test coupons at checkout
+            card_wallet: OPTIONAL - CardWallet with the user's actual credit cards.
+                         If None, credit card rewards are NOT calculated.
+                         Only the user's own cards are considered.
+            enable_coupon_testing: Whether to test coupons at checkout (slow)
             tax_rate: Estimated sales tax rate (e.g., 0.0825 for 8.25%)
         """
         self.card_wallet = card_wallet
@@ -890,33 +909,58 @@ if __name__ == "__main__":
     import sys
     
     async def main():
-        if len(sys.argv) < 2:
-            print("Usage: python optimizer.py <product_url_or_search>")
-            print("Example: python optimizer.py https://amazon.com/dp/B09V3KXJPB")
-            sys.exit(1)
+        print("🏷️ Net Price Optimizer Demo\n")
+        print("=" * 50)
         
-        query = " ".join(sys.argv[1:])
-        print(f"🔍 Optimizing: {query}\n")
+        # Demo 1: WITHOUT credit cards (cashback + coupons only)
+        print("\n📌 SCENARIO 1: Without Credit Cards")
+        print("   (User has not added any cards to their wallet)\n")
         
-        # Quick calculation demo
-        demo = calculate_net_price(
-            product_price=99.99,
-            cashback_percent=5,
-            card_reward_percent=3,
-            coupon_discount=10,
+        demo_no_cards = calculate_net_price(
+            product_price=120.00,
+            cashback_percent=6,      # TopCashback 6%
+            card_reward_percent=0,   # No cards provided
+            coupon_discount=18,      # NIKE15 coupon ($15 off)
             tax_rate=0.0825,
-            shipping=0,
         )
+        print(f"   Product Price:     ${demo_no_cards['product_price']:>8.2f}")
+        print(f"   Coupon (NIKE15):  -${demo_no_cards['coupon_discount']:>8.2f}")
+        print(f"   Tax (8.25%):      +${demo_no_cards['tax']:>8.2f}")
+        print(f"   ─────────────────────────────")
+        print(f"   Subtotal:          ${demo_no_cards['gross_total']:>8.2f}")
+        print(f"   Cashback (6%):    -${demo_no_cards['cashback']:>8.2f}")
+        print(f"   Credit Card:      -$    0.00  (none configured)")
+        print(f"   ═════════════════════════════")
+        print(f"   💰 NET PRICE:      ${demo_no_cards['net_price']:>8.2f}")
+        print(f"   📊 Total Savings:  ${demo_no_cards['total_savings']:>8.2f} ({demo_no_cards['savings_percent']:.1f}%)")
         
-        print("=== Demo Calculation ===")
-        print(f"Product Price:    ${demo['product_price']:.2f}")
-        print(f"Coupon Discount: -${demo['coupon_discount']:.2f}")
-        print(f"Tax (8.25%):      ${demo['tax']:.2f}")
-        print(f"Gross Total:      ${demo['gross_total']:.2f}")
-        print(f"Cashback (5%):   -${demo['cashback']:.2f}")
-        print(f"Card Rewards (3%):-${demo['card_rewards']:.2f}")
-        print(f"─────────────────────────")
-        print(f"Net Price:        ${demo['net_price']:.2f}")
-        print(f"Total Savings:    ${demo['total_savings']:.2f} ({demo['savings_percent']:.1f}%)")
+        # Demo 2: WITH user's credit cards
+        print("\n" + "=" * 50)
+        print("\n📌 SCENARIO 2: With User's Credit Cards")
+        print("   (User has Amex Gold earning 4x on this category)\n")
+        
+        demo_with_cards = calculate_net_price(
+            product_price=120.00,
+            cashback_percent=6,      # TopCashback 6%
+            card_reward_percent=4,   # User's Amex Gold (4x on clothing)
+            coupon_discount=18,      # NIKE15 coupon
+            tax_rate=0.0825,
+        )
+        print(f"   Product Price:     ${demo_with_cards['product_price']:>8.2f}")
+        print(f"   Coupon (NIKE15):  -${demo_with_cards['coupon_discount']:>8.2f}")
+        print(f"   Tax (8.25%):      +${demo_with_cards['tax']:>8.2f}")
+        print(f"   ─────────────────────────────")
+        print(f"   Subtotal:          ${demo_with_cards['gross_total']:>8.2f}")
+        print(f"   Cashback (6%):    -${demo_with_cards['cashback']:>8.2f}")
+        print(f"   Amex Gold (4%):   -${demo_with_cards['card_rewards']:>8.2f}")
+        print(f"   ═════════════════════════════")
+        print(f"   💰 NET PRICE:      ${demo_with_cards['net_price']:>8.2f}")
+        print(f"   📊 Total Savings:  ${demo_with_cards['total_savings']:>8.2f} ({demo_with_cards['savings_percent']:.1f}%)")
+        
+        # Show the difference
+        print("\n" + "=" * 50)
+        extra_savings = demo_no_cards['net_price'] - demo_with_cards['net_price']
+        print(f"\n💳 Adding your credit cards saved an extra ${extra_savings:.2f}!")
+        print("   Credit card rewards are OPTIONAL - only YOUR cards are used.")
         
     asyncio.run(main())
