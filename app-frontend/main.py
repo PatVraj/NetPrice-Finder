@@ -38,12 +38,15 @@ FIREFLY_API_URL = os.getenv("FIREFLY_API_URL", "http://firefly:8080")
 @dataclass
 class PriceResult:
     """Result from price optimization."""
+    product_name: str = ""
     product_price: float = 0.0
     retailer: str = ""
     original_url: str = ""
     coupon_code: Optional[str] = None
     coupon_discount: float = 0.0
     tax: float = 0.0
+    tax_rate: float = 0.0
+    tax_location: Optional[str] = None
     shipping: float = 0.0
     gross_total: float = 0.0
     cashback_platform: Optional[str] = None
@@ -103,7 +106,7 @@ async def init_redis() -> Optional[redis.Redis]:
 async def find_best_price(query: str) -> Optional[PriceResult]:
     """Call the optimizer API to find best price."""
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for scraping
             response = await client.post(
                 f"{API_URL}/api/v1/find-best-price",
                 json={"query": query, "include_cashback": True, "include_coupons": True}
@@ -254,6 +257,21 @@ def create_search_hero():
             loading_spinner = ui.spinner('dots', size='lg', color='positive').classes('mt-4')
             loading_spinner.visible = False
             
+            # Progress log area
+            progress_container = ui.column().classes('w-full max-w-3xl mt-4')
+            progress_container.visible = False
+            
+            with progress_container:
+                progress_log = ui.log(max_lines=10).classes(
+                    'w-full h-32 bg-gray-900 text-green-400 font-mono text-sm rounded border border-gray-700'
+                )
+            
+            async def update_progress(message: str):
+                """Add a message to the progress log."""
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                progress_log.push(f"[{timestamp}] {message}")
+            
             async def do_search():
                 query = search_input.value.strip()
                 if not query:
@@ -261,26 +279,46 @@ def create_search_hero():
                     return
                 
                 loading_spinner.visible = True
+                progress_container.visible = True
+                progress_log.clear()
                 state.is_loading = True
                 search_button.disable()
                 
                 try:
                     if query.startswith('http'):
-                        ui.notify(f'Analyzing: {query}', type='info')
+                        await update_progress(f"🔗 Analyzing URL: {query[:60]}...")
+                        await update_progress("🌐 Connecting to scraper engine...")
+                        await asyncio.sleep(0.1)  # Let UI update
+                        
+                        await update_progress("📄 Loading page content...")
+                        await asyncio.sleep(0.1)
                         
                         # Call the real API
                         result = await find_best_price(query)
                         
                         if result:
+                            await update_progress("✅ Product info extracted!")
+                            await update_progress(f"💰 Found price: ${result.product_price:.2f}")
+                            if result.cashback_percent > 0:
+                                await update_progress(f"💵 Cashback available: {result.cashback_percent}%")
+                            if result.coupon_code:
+                                await update_progress(f"🏷️ Coupon found: {result.coupon_code}")
+                            await update_progress("🎯 Calculating best net price...")
+                            await asyncio.sleep(0.3)
+                            
                             state.current_result = result
                             ui.navigate.to('/results')
                         else:
+                            await update_progress("❌ Could not parse product information")
+                            await update_progress("💡 Try a different URL or check if the site is supported")
                             ui.notify('Could not analyze this product. The scraper may not support this site yet.', type='warning')
                     else:
-                        ui.notify(f'Searching for: {query}', type='info')
+                        await update_progress(f"🔍 Searching for: {query}")
                         ui.notify('Product search coming soon! Try pasting a direct URL.', type='info')
+                        progress_container.visible = False
                         
                 except Exception as e:
+                    await update_progress(f"❌ Error: {str(e)}")
                     ui.notify(f'Error: {str(e)}', type='negative')
                 finally:
                     loading_spinner.visible = False
@@ -370,6 +408,10 @@ def create_results_display():
             ui.button('←', on_click=lambda: ui.navigate.to('/'), icon='arrow_back').props('flat')
             ui.label(f'Results for {r.retailer}').classes('text-xl font-bold')
         
+        # Product Name
+        if hasattr(r, 'product_name') and r.product_name:
+            ui.label(r.product_name).classes('text-lg text-gray-300 mb-4')
+        
         # Original Price
         with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
             ui.label('Product Price').classes('text-gray-400')
@@ -383,9 +425,15 @@ def create_results_display():
                     ui.label(f'Coupon: {r.coupon_code or "Applied"}').classes('text-amber-400')
                 ui.label(f'-${r.coupon_discount:.2f}').classes('text-lg text-green-400')
         
-        # Tax & Shipping
+        # Tax with location info
         with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-            ui.label('Tax').classes('text-gray-400')
+            with ui.column().classes('gap-0'):
+                tax_label = 'Tax'
+                if hasattr(r, 'tax_location') and r.tax_location:
+                    tax_label = f'Tax ({r.tax_location})'
+                if hasattr(r, 'tax_rate') and r.tax_rate > 0:
+                    tax_label += f' @ {r.tax_rate:.1f}%'
+                ui.label(tax_label).classes('text-gray-400')
             ui.label(f'+${r.tax:.2f}').classes('text-lg text-gray-400')
         
         if r.shipping > 0:

@@ -122,7 +122,7 @@ cd NetPrice-Finder
 cp .env.example .env
 
 # Build and start all services
-docker compose up -d
+docker compose up --build
 
 # Pull an LLM model
 docker compose exec intelligence-core ollama pull llama3.1:8b

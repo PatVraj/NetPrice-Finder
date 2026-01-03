@@ -216,6 +216,14 @@ KNOWN_RETAILERS = {
     "target.com": {"name": "Target", "category": "retail", "mcc": "5311"},
     "costco.com": {"name": "Costco", "category": "wholesale", "mcc": "5300"},
     
+    # Jewelry
+    "pandora.net": {"name": "Pandora", "category": "jewelry", "mcc": "5944"},
+    "us.pandora.net": {"name": "Pandora", "category": "jewelry", "mcc": "5944"},
+    "tiffany.com": {"name": "Tiffany", "category": "jewelry", "mcc": "5944"},
+    "kay.com": {"name": "Kay Jewelers", "category": "jewelry", "mcc": "5944"},
+    "jared.com": {"name": "Jared", "category": "jewelry", "mcc": "5944"},
+    "bluenile.com": {"name": "Blue Nile", "category": "jewelry", "mcc": "5944"},
+    
     # Electronics
     "bestbuy.com": {"name": "Best Buy", "category": "electronics", "mcc": "5732"},
     "newegg.com": {"name": "Newegg", "category": "electronics", "mcc": "5732"},
@@ -305,6 +313,8 @@ class ProductScraper:
                             "price": ["[itemprop='price']", ".price", "[data-price]", ".product-price"],
                             "original_price": [".original-price", ".was-price", ".list-price", "s", "del"],
                         },
+                        "wait_for": "domcontentloaded",  # Don't wait for networkidle - modern sites never idle
+                        "timeout": 45000,  # 45 seconds
                     },
                 )
                 
@@ -415,6 +425,10 @@ JSON:"""
         price = self._parse_price(price_text)
         if price is None:
             return None
+        
+        # Use page title or fallback if no product title
+        if not title:
+            title = data.get("page_title", "") or "Product"
         
         original_price = self._parse_price(original_text) if original_text else None
         
@@ -643,7 +657,7 @@ class NetPriceOptimizer:
     async def _get_cashback_monitor(self):
         """Lazy load cashback monitor."""
         if self._cashback_monitor is None:
-            from .cashback import CashbackMonitor
+            from cashback.monitor import CashbackMonitor
             self._cashback_monitor = CashbackMonitor()
         return self._cashback_monitor
     

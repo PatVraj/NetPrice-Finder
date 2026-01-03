@@ -56,12 +56,13 @@ class ScrapeResult(BaseModel):
 class ExtractRequest(BaseModel):
     url: str
     selectors: dict[str, list[str]]  # name -> list of CSS selectors to try
-    wait_for: str = "networkidle"
-    timeout: int = 30000
+    wait_for: str = "domcontentloaded"  # Changed from networkidle - modern sites have continuous activity
+    timeout: int = 45000  # Increased timeout for slow pages
 
 class ExtractResult(BaseModel):
     url: str
     title: str
+    page_title: Optional[str] = None  # Page <title> as fallback for product name
     extracted: dict[str, Optional[str]]  # selector name -> extracted text
     html: Optional[str] = None
     screenshot: Optional[str] = None
@@ -407,6 +408,7 @@ async def extract_data(request: ExtractRequest):
         return ExtractResult(
             url=request.url,
             title=title,
+            page_title=title,  # Include page title for fallback
             extracted=extracted,
             html=html[:50000] if html else None,  # Limit HTML size
             screenshot=screenshot_b64

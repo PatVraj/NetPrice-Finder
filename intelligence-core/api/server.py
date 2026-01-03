@@ -7,12 +7,22 @@ intelligence modules to the frontend.
 
 import os
 import sys
+import logging
+import traceback
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
 import uvicorn
@@ -34,6 +44,7 @@ from rewards.schema import (
     POPULAR_CARDS
 )
 from cashback.monitor import CashbackMonitor, CashbackOffer
+from tax.location import TaxCalculator, get_tax_rate_for_ip
 
 # =============================================================================
 # Configuration
@@ -76,12 +87,15 @@ class QuickPriceRequest(BaseModel):
 
 class SavingsResponse(BaseModel):
     """Response with savings breakdown."""
+    product_name: str
     product_price: float
     retailer: str
     original_url: str
     coupon_code: Optional[str]
     coupon_discount: float
     tax: float
+    tax_rate: float = 0.0
+    tax_location: Optional[str] = None
     shipping: float
     gross_total: float
     cashback_platform: Optional[str]
@@ -185,7 +199,7 @@ async def quick_price_calculation(request: QuickPriceRequest):
     return result
 
 @app.post("/api/v1/find-best-price", response_model=SavingsResponse)
-async def find_best_price(request: ProductSearchRequest):
+async def find_best_price(request: ProductSearchRequest, req: Request):
     """
     Find the best net price for a product.
     
@@ -194,39 +208,77 @@ async def find_best_price(request: ProductSearchRequest):
     2. Searches cashback platforms (Rakuten, TopCashback, etc.)
     3. Finds applicable coupons
     4. Calculates credit card rewards (if user has cards configured)
-    5. Returns the TRUE net price after all savings
+    5. Auto-detects location for tax calculation
+    6. Returns the TRUE net price after all savings
     """
     try:
-        # Create optimizer with user's wallet (if they have cards)
+        logger.info(f"Processing query: {request.query}")
+        
+        # Get client IP for tax detection
+        client_ip = req.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        if not client_ip:
+            client_ip = req.client.host if req.client else None
+        
+        # Detect tax rate based on location
+        tax_rate = 0.0
+        tax_location = None
+        try:
+            async with TaxCalculator() as tax_calc:
+                tax_info = await tax_calc.get_tax_for_ip(client_ip)
+                tax_rate = tax_info.combined_rate / 100  # Convert to decimal
+                tax_location = tax_info.state_name or tax_info.state_code
+                logger.info(f"Detected tax: {tax_info.combined_rate}% for {tax_location} (IP: {client_ip})")
+        except Exception as e:
+            logger.warning(f"Tax detection failed: {e}, using 0%")
+        
+        # Create optimizer with user's wallet (if they have cards) and detected tax rate
         wallet = app.state.user_wallet if app.state.user_wallet.cards else None
         
-        async with NetPriceOptimizer(card_wallet=wallet) as optimizer:
+        async with NetPriceOptimizer(card_wallet=wallet, tax_rate=tax_rate) as optimizer:
             result = await optimizer.optimize(request.query)
             
-            if not result:
-                raise HTTPException(status_code=404, detail="Could not find product")
+            logger.info(f"Optimization result: options={len(result.options)}, best_option={result.best_option is not None}, error={result.error}")
+            
+            if not result.best_option:
+                error_msg = result.error or "Could not find product or price"
+                logger.error(f"No best option found: {error_msg}")
+                raise HTTPException(status_code=404, detail=error_msg)
+            
+            # Extract data from the best option
+            best = result.best_option
+            savings = best.savings
+            product = best.product
+            
+            logger.info(f"Best option: {product.name}, price=${savings.product_price}, net=${savings.net_price}")
             
             return SavingsResponse(
-                product_price=result.product_price,
-                retailer=result.retailer,
-                original_url=result.original_url,
-                coupon_code=result.coupon_code,
-                coupon_discount=result.coupon_discount,
-                tax=result.tax,
-                shipping=result.shipping,
-                gross_total=result.gross_total,
-                cashback_platform=result.cashback_platform,
-                cashback_percent=result.cashback_percent,
-                cashback_value=result.cashback_value,
-                card_name=result.card_name,
-                card_reward_percent=result.card_reward_percent,
-                card_reward_value=result.card_reward_value,
-                net_price=result.net_price,
-                total_savings=result.total_savings,
-                savings_percent=result.savings_percent,
+                product_name=product.name,
+                product_price=savings.product_price,
+                retailer=best.retailer,
+                original_url=product.url,
+                coupon_code=savings.coupon_code,
+                coupon_discount=savings.coupon_savings,
+                tax=savings.tax,
+                tax_rate=tax_rate * 100,  # Convert to percentage
+                tax_location=tax_location,
+                shipping=savings.shipping,
+                gross_total=savings.gross_total,
+                cashback_platform=savings.cashback_platform,
+                cashback_percent=savings.cashback_percent,
+                cashback_value=savings.cashback_amount,
+                card_name=savings.credit_card_name,
+                card_reward_percent=savings.credit_card_rate,
+                card_reward_value=savings.credit_card_rewards,
+                net_price=savings.net_price,
+                total_savings=savings.total_savings,
+                savings_percent=savings.savings_percent,
                 timestamp=datetime.now()
             )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error in find_best_price: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/cashback-rates", response_model=CashbackRatesResponse)

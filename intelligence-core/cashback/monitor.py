@@ -306,63 +306,236 @@ class HoneyScraper:
 
 
 class TopCashbackScraper:
-    """Scrape cashback rates from TopCashback."""
+    """Scrape cashback rates from TopCashback using their search API."""
     
     BASE_URL = "https://www.topcashback.com"
-    SEARCH_URL = "https://www.topcashback.com/search"
+    # TopCashback has a JSON API for search that's more reliable than scraping
+    SEARCH_API = "https://www.topcashback.com/ajax/merchant/search"
+    MERCHANT_URL = "https://www.topcashback.com/{slug}"
+    
+    # Scraper engine for browser-based scraping when needed
+    SCRAPER_HOST = os.getenv("SCRAPER_HOST", "http://scraper-engine:5000")
     
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list[CashbackOffer]:
-        """Search TopCashback for merchant rates."""
+        """Search TopCashback for merchant rates with verification."""
         offers = []
         
         try:
-            # TopCashback has a search endpoint
-            params = {"q": merchant}
+            # First, try the search to find exact merchant match
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "en-US,en;q=0.9",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://www.topcashback.com/",
             }
             
+            # Try the search API first
             response = await client.get(
-                self.SEARCH_URL,
-                params=params,
+                self.SEARCH_API,
+                params={"term": merchant, "maxResults": 5},
                 headers=headers,
-                follow_redirects=True,
+                timeout=10.0,
             )
             
             if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # API returns list of merchants with cashback info
+                    merchants = data if isinstance(data, list) else data.get("merchants", [])
+                    
+                    for m in merchants:
+                        name = m.get("name", m.get("merchantName", ""))
+                        # Verify it's actually the merchant we're looking for
+                        if self._is_merchant_match(merchant, name):
+                            rate = m.get("cashback", m.get("rate", m.get("cashbackRate", "")))
+                            url = m.get("url", m.get("merchantUrl", ""))
+                            
+                            if rate:
+                                percent, fixed, text = parse_cashback_rate(str(rate))
+                                if percent or fixed:
+                                    offers.append(CashbackOffer(
+                                        platform=CashbackPlatform.TOPCASHBACK,
+                                        merchant=name,
+                                        cashback_percent=percent,
+                                        cashback_fixed=fixed,
+                                        cashback_text=text or f"Up to {rate}",
+                                        affiliate_url=f"{self.BASE_URL}{url}" if url.startswith("/") else url,
+                                        last_updated=datetime.now().isoformat(),
+                                        confidence=0.95,  # High confidence from API
+                                    ))
+                                    return offers  # Found verified match
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Not JSON, try direct page
+            
+            # Fallback: Try direct merchant page with verification
+            slug = self._make_slug(merchant)
+            url = self.MERCHANT_URL.format(slug=slug)
+            
+            response = await client.get(url, headers=headers, follow_redirects=True, timeout=10.0)
+            
+            if response.status_code == 200:
+                # CRITICAL: Verify this is actually the merchant page, not a 404/search page
                 html = response.text
                 
-                # Look for cashback rates in search results
-                # TopCashback typically shows "Up to X% Cash Back"
-                rate_pattern = r'(?:Up\s*to\s*)?(\d+(?:\.\d+)?%)\s*(?:Cash\s*Back|cashback)'
-                merchant_pattern = r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
-                
-                rates = re.findall(rate_pattern, html, re.IGNORECASE)
-                merchants = re.findall(merchant_pattern, html)
-                
-                # Match merchants that contain our search term
-                for href, name in merchants:
-                    if merchant.lower() in name.lower():
-                        # Find associated rate
-                        rate_text = rates[0] if rates else ""
-                        percent, fixed, original = parse_cashback_rate(rate_text)
+                # Check if page is a valid merchant page (not search results or error)
+                if self._is_valid_merchant_page(html, merchant):
+                    offer = self._parse_merchant_page(html, merchant, url)
+                    if offer:
+                        offers.append(offer)
                         
-                        offers.append(CashbackOffer(
-                            platform=CashbackPlatform.TOPCASHBACK,
-                            merchant=name.strip(),
-                            cashback_percent=percent,
-                            cashback_fixed=fixed,
-                            cashback_text=original or rate_text,
-                            affiliate_url=f"{self.BASE_URL}{href}" if href.startswith("/") else href,
-                            last_updated=datetime.now().isoformat(),
-                            confidence=0.75,
-                        ))
-                        break
-                        
-        except Exception:
+        except Exception as e:
+            # Don't return false positives on error
             pass
         
         return offers
+    
+    def _is_merchant_match(self, search_term: str, found_name: str) -> bool:
+        """Verify the found merchant actually matches what we're looking for."""
+        search_lower = search_term.lower().strip()
+        found_lower = found_name.lower().strip()
+        
+        # Exact match
+        if search_lower == found_lower:
+            return True
+        
+        # Search term is contained in found name (e.g., "Macy's" in "Macy's Department Store")
+        if search_lower in found_lower:
+            return True
+        
+        # Found name is contained in search term
+        if found_lower in search_lower:
+            return True
+        
+        # Handle common variations
+        search_normalized = re.sub(r"[^a-z0-9]", "", search_lower)
+        found_normalized = re.sub(r"[^a-z0-9]", "", found_lower)
+        
+        if search_normalized == found_normalized:
+            return True
+        
+        if search_normalized in found_normalized or found_normalized in search_normalized:
+            return True
+        
+        return False
+    
+    def _is_valid_merchant_page(self, html: str, merchant: str) -> bool:
+        """
+        Verify this is a valid merchant cashback page, not:
+        - A search results page
+        - A 404/error page
+        - A completely different merchant
+        """
+        html_lower = html.lower()
+        merchant_lower = merchant.lower()
+        
+        # Signs this is NOT a valid merchant page:
+        invalid_indicators = [
+            "page not found",
+            "no results found",
+            "search results for",
+            "we couldn't find",
+            "0 results",
+            "sorry, we couldn't",
+        ]
+        
+        for indicator in invalid_indicators:
+            if indicator in html_lower:
+                return False
+        
+        # The merchant name should appear on the page
+        merchant_normalized = re.sub(r"[^a-z0-9]", "", merchant_lower)
+        html_normalized = re.sub(r"[^a-z0-9]", "", html_lower)
+        
+        if merchant_normalized not in html_normalized:
+            return False
+        
+        # Should have cashback-related content
+        cashback_indicators = ["cash back", "cashback", "% back", "earn cash"]
+        has_cashback = any(indicator in html_lower for indicator in cashback_indicators)
+        
+        if not has_cashback:
+            return False
+        
+        return True
+    
+    def _make_slug(self, merchant: str) -> str:
+        """Convert merchant name to URL slug."""
+        # Common merchant name to TopCashback slug mappings
+        slug_overrides = {
+            "macy's": "macys",
+            "macys": "macys",
+            "nordstrom": "nordstrom",
+            "best buy": "best-buy",
+            "bestbuy": "best-buy",
+            "walmart": "walmart",
+            "target": "target",
+            "amazon": "amazon",
+            "home depot": "the-home-depot",
+            "lowe's": "lowes",
+            "lowes": "lowes",
+            "sephora": "sephora",
+            "nike": "nikecom",
+            "adidas": "adidas",
+        }
+        
+        merchant_lower = merchant.lower().strip()
+        if merchant_lower in slug_overrides:
+            return slug_overrides[merchant_lower]
+        
+        # Default: lowercase, replace spaces with hyphens
+        return re.sub(r'[^a-z0-9]+', '-', merchant_lower).strip('-')
+    
+    def _parse_merchant_page(self, html: str, merchant: str, url: str) -> Optional[CashbackOffer]:
+        """Parse TopCashback merchant page for cashback rate."""
+        # TopCashback shows rate in formats like:
+        # "Up to 6% Cash Back"
+        # "6% Cash Back"  
+        # "Up to $10 Cash Back"
+        
+        # Pattern for percentage cashback - look for prominent rates
+        rate_patterns = [
+            r'(?:Up\s*to\s*)?(\d+(?:\.\d+)?)\s*%\s*(?:Cash\s*Back|Cashback)',
+            r'class="[^"]*rate[^"]*"[^>]*>(?:Up\s*to\s*)?(\d+(?:\.\d+)?)\s*%',
+            r'data-rate="(\d+(?:\.\d+)?)"',
+        ]
+        
+        for pattern in rate_patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if match:
+                rate = float(match.group(1))
+                if 0 < rate <= 50:  # Sanity check - rates above 50% are suspicious
+                    return CashbackOffer(
+                        platform=CashbackPlatform.TOPCASHBACK,
+                        merchant=merchant,
+                        cashback_percent=rate,
+                        cashback_text=f"Up to {rate}% Cash Back",
+                        affiliate_url=url,
+                        last_updated=datetime.now().isoformat(),
+                        confidence=0.85,  # Good confidence from verified page
+                    )
+        
+        # Pattern for fixed dollar cashback
+        fixed_patterns = [
+            r'(?:Up\s*to\s*)?\$(\d+(?:\.\d+)?)\s*(?:Cash\s*Back|Cashback)',
+        ]
+        
+        for pattern in fixed_patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if match:
+                amount = float(match.group(1))
+                if 0 < amount <= 500:  # Sanity check
+                    return CashbackOffer(
+                        platform=CashbackPlatform.TOPCASHBACK,
+                        merchant=merchant,
+                        cashback_fixed=amount,
+                        cashback_text=f"Up to ${amount} Cash Back",
+                        affiliate_url=url,
+                        last_updated=datetime.now().isoformat(),
+                        confidence=0.85,
+                    )
+        
+        return None
 
 
 class BeFrugalScraper:
@@ -604,7 +777,7 @@ class CashbackMonitor:
             for offer in offers:
                 merchant_cashback.add_offer(offer)
         
-        # Cache the result
+        # Cache the result (even if empty - prevents hammering sites)
         self._set_cached(merchant, merchant_cashback)
         
         return merchant_cashback
