@@ -34,8 +34,18 @@
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
 | `35f48e0` | 2026-01-03 | 18 files | Complete Docker infrastructure skeleton |
+| `70f7524` | 2026-01-03 | 2 files | Documentation update with commit tracking |
+| `2e68031` | 2026-01-03 | 5 files | Fix Docker infrastructure issues |
 
 #### Session: 2026-01-03 (Latest)
+
+**Test Runthrough Results:**
+- ✅ Docker GPU access verified (nvidia-smi in container)
+- ✅ All 6 services running and healthy
+- ✅ NiceGUI frontend accessible at http://localhost:8080
+- ✅ Ollama LLM loaded with Llama 3.1:8b model
+- ✅ Playwright scraper with stealth patches operational
+- ✅ Redis, MariaDB, Firefly III all healthy
 
 **Files Created:**
 - `docker-compose.yml` – Complete Docker Compose with 6 services and GPU passthrough
@@ -47,6 +57,7 @@
 - `scraper-engine/Dockerfile` – Playwright + Xvfb + GPU container
 - `scraper-engine/requirements.txt` – Python dependencies for scraper
 - `scraper-engine/run_scraper.py` – FastAPI scraper with real-time streaming
+- `scraper-engine/start.sh` – Xvfb startup script for headful browser
 - `intelligence-core/prompts/router.yaml` – LLM tool definitions
 - `intelligence-core/tools/router.py` – Semantic router with function calling
 - `scripts/start.sh` – Linux/Mac quick start script
@@ -64,7 +75,7 @@
 | Task | Status | Priority | Branch |
 |------|--------|----------|--------|
 | Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Verify `nvidia-smi` inside Docker container | ⬜ | 🔴 Critical | `feature/docker-infrastructure` |
+| Verify `nvidia-smi` inside Docker container | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
 | Set up NiceGUI Hello World on port 8080 | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
 | Create `.env.example` template | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
 | Configure Docker network isolation | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
@@ -72,8 +83,10 @@
 | Create scraper-engine Dockerfile | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
 | Create intelligence-core router | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
 | Create startup scripts | ✅ | 🟢 Low | `feature/docker-infrastructure` |
+| Pull Llama 3.1:8b model for Ollama | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+| Fix playwright-stealth v2.0 API compatibility | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
 
-**Milestone:** Docker stack running with GPU access confirmed
+**Milestone:** ✅ Docker stack running with GPU access confirmed
 
 ---
 
