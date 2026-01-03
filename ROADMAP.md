@@ -161,13 +161,13 @@
 ---
 
 ### Phase 4: "Sovereign" Features 👑
-**Target:** Days 15+ | **Status:** ⬜ Not Started
+**Target:** v0.5.0 | **Status:** 🔄 In Progress
 
 | Task | Status | Priority |
 |------|--------|----------|
-| Implement Vision Parser for PDF statements | ⬜ | 🔴 Critical |
-| Build MCC enrichment pipeline | ⬜ | 🟡 Medium |
-| Create Credit Card Reward Schema system | ⬜ | 🟡 Medium |
+| Implement Vision Parser for PDF statements | ✅ | 🔴 Critical |
+| Build MCC enrichment pipeline | ✅ | 🟡 Medium |
+| Create Credit Card Reward Schema system | ✅ | 🟡 Medium |
 | Build Coupon Auto-Applier logic | ⬜ | 🟢 Low |
 | Implement Cashback Monitor scraper | ⬜ | 🟡 Medium |
 | Add "Missed Opportunity" reporting | ⬜ | 🟢 Low |
