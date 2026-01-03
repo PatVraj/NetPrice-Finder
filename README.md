@@ -1,18 +1,24 @@
-# Sovereign Smart Intelligence Platform (SSIP)
+# Net Price Finder
 
-> **Zero-Cost, Data-Sovereign Financial Intelligence**
+> **Find the TRUE cheapest price after all savings stack**
 
-A local-first, event-driven microservices application that eliminates reliance on third-party financial aggregators by utilizing local GPU compute for AI inference and "headful" browser automation.
+Paste a product link → Get the real net price after:
+- 💵 **Cashback** (Rakuten, TopCashback, Honey, BeFrugal, Swagbucks)
+- 🏷️ **Coupons** (auto-discovered from RetailMeNot, vendor sites)
+- 💳 **Credit Card Rewards** (optional - only YOUR cards)
+
+A local-first, event-driven microservices application that eliminates reliance on third-party services by utilizing local GPU compute for AI inference and "headful" browser automation.
 
 ---
 
 ## 🎯 Overview
 
-SSIP provides:
-- **Financial Data Sovereignty** – All data stays on your hardware
+Net Price Finder provides:
+- **True Cost Calculation** – See the REAL price after all discounts stack
+- **Data Sovereignty** – All data stays on your hardware
 - **Zero Marginal Cost** – No recurring SaaS subscriptions
-- **High-Fidelity Automation** – GPU-accelerated browser automation with anti-bot evasion
-- **Intelligent Routing** – Local LLM-powered intent classification and document parsing
+- **Smart Card Optimization** – Recommends the best card from YOUR wallet (optional)
+- **Privacy First** – No browser extensions tracking your data
 
 ---
 
@@ -25,27 +31,39 @@ NetPrice-Finder/
 ├── app-frontend/                  # NiceGUI Dashboard
 │   ├── Dockerfile                 # Container configuration
 │   ├── requirements.txt           # Python dependencies
-│   └── main.py                    # Dashboard application
+│   └── main.py                    # Net Price Finder UI
 ├── scraper-engine/                # Playwright + Xvfb + GPU
 │   ├── Dockerfile                 # Container with GPU support
 │   ├── requirements.txt           # Python dependencies
 │   └── run_scraper.py             # Visual scraper with streaming
-├── intelligence-core/             # Ollama LLM wrapper
+├── intelligence-core/             # Core intelligence modules
+│   ├── api/
+│   │   ├── __init__.py            # Module exports
+│   │   └── server.py              # FastAPI endpoints
+│   ├── optimizer/
+│   │   ├── __init__.py            # Module exports
+│   │   └── net_price.py           # Net Price Optimizer
+│   ├── cashback/
+│   │   ├── __init__.py            # Module exports
+│   │   └── monitor.py             # Cashback platform scraper
+│   ├── rewards/
+│   │   ├── __init__.py            # Module exports
+│   │   └── schema.py              # Credit card reward engine
+│   ├── vision/
+│   │   ├── __init__.py            # Module exports
+│   │   └── parser.py              # PDF/receipt parser
 │   ├── prompts/
 │   │   └── router.yaml            # Tool definitions
 │   └── tools/
 │       └── router.py              # Semantic router
 ├── configs/                       # Service configurations
-│   └── .gitkeep
 ├── scripts/
 │   ├── start.sh                   # Linux/Mac quick start
 │   └── start.ps1                  # Windows quick start
 ├── docker-compose.yml             # Container orchestration
 ├── .env.example                   # Environment template
-├── .gitignore                     # Git ignore patterns
 ├── README.md                      # Project documentation
 ├── ROADMAP.md                     # Version tracking & changelog
-├── LICENSE                        # License file
 └── research.txt                   # Architectural specification
 ```
 

@@ -176,6 +176,24 @@
 
 ---
 
+### Phase 5: Frontend Integration 🖥️
+**Target:** v0.6.0 | **Status:** ✅ Complete
+
+| Task | Status | Priority |
+|------|--------|----------|
+| Create FastAPI server for optimizer | ✅ | 🔴 Critical |
+| Build price optimization endpoints | ✅ | 🔴 Critical |
+| Create card wallet management API | ✅ | 🟡 Medium |
+| Redesign NiceGUI frontend | ✅ | 🔴 Critical |
+| Implement search hero component | ✅ | 🟡 Medium |
+| Build results display page | ✅ | 🔴 Critical |
+| Create card wallet management UI | ✅ | 🟡 Medium |
+| Add quick calculator widget | ✅ | 🟢 Low |
+
+**Milestone:** ✅ User can paste a link and see net price breakdown
+
+---
+
 ### Branch: `feature/phase4-sovereign-features`
 **Created:** 2026-01-04  
 **Merged:** Open  
@@ -189,6 +207,8 @@
 | `8e5c8d6` | 2026-01-04 | 4 files | Credit Card Reward Schema + Cashback Monitor |
 | `43c97c2` | 2026-01-04 | 4 files | Net Price Optimizer - core intelligence |
 | `19d8ff0` | 2026-01-04 | 1 file | Clarify credit card rewards are optional |
+| `642c106` | 2026-01-04 | 1 file | Update roadmap with Phase 4 details |
+| `866c0d2` | 2026-01-03 | 3 files | Frontend integration with Net Price Optimizer |
 
 #### Files Created (Phase 4):
 - `intelligence-core/vision/parser.py` – PDF/receipt parsing with LLaVA
@@ -198,6 +218,14 @@
 - `intelligence-core/cashback/monitor.py` – Multi-platform cashback scraping
 - `intelligence-core/cashback/__init__.py` – Module exports
 - `intelligence-core/optimizer/net_price.py` – Net Price Optimizer (core)
+- `intelligence-core/optimizer/__init__.py` – Module exports
+
+#### Files Created (Phase 5 - Frontend Integration):
+- `intelligence-core/api/server.py` – FastAPI server for optimizer endpoints
+- `intelligence-core/api/__init__.py` – Module exports
+
+#### Files Modified (Phase 5):
+- `app-frontend/main.py` – Complete rewrite with Net Price Finder UI
 - `intelligence-core/optimizer/__init__.py` – Module exports
 
 #### Key Design Decisions:
