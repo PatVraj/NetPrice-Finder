@@ -219,6 +219,7 @@
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
+| `85d51e7` | 2026-01-04 | 8 files | Fix false positive cashback + auto tax detection |
 | `bbf7279` | 2026-01-04 | 3 files | Vision Parser for PDFs + MCC enrichment |
 | `8e5c8d6` | 2026-01-04 | 4 files | Credit Card Reward Schema + Cashback Monitor |
 | `43c97c2` | 2026-01-04 | 4 files | Net Price Optimizer - core intelligence |
@@ -236,6 +237,8 @@
 - `intelligence-core/cashback/__init__.py` – Module exports
 - `intelligence-core/optimizer/net_price.py` – Net Price Optimizer (core)
 - `intelligence-core/optimizer/__init__.py` – Module exports
+- `intelligence-core/tax/location.py` – Auto tax detection via IP geolocation
+- `intelligence-core/tax/__init__.py` – Module exports
 
 #### Files Created (Phase 5 - Frontend Integration):
 - `intelligence-core/api/server.py` – FastAPI server for optimizer endpoints
@@ -258,6 +261,38 @@
 2. **Cashback stacking** – Compares 5 platforms: Rakuten, Honey, TopCashback, BeFrugal, Swagbucks
 3. **Coupon finding** – Scrapes coupons from RetailMeNot, Honey, vendor sites
 4. **Net price calculation** – Product - Coupon + Tax - Cashback - Card Rewards = TRUE cost
+
+#### Session: 2026-01-04 – Cashback Verification & Tax Detection
+
+**Issues Fixed:**
+- 🐛 TopCashback scraper returning false positives (2% for non-existent merchants)
+- 🐛 Hardcoded cashback rates removed in favor of live scraping
+- ✨ Added auto tax detection based on user's IP location
+
+**Changes Made:**
+1. **TopCashback Scraper Rewrite:**
+   - Uses search API (`/ajax/merchant/search`) for reliable data
+   - Added `_is_merchant_match()` to verify merchant name matches
+   - Added `_is_valid_merchant_page()` to detect 404/error pages
+   - Confidence scores: 0.95 (API) vs 0.85 (page scrape)
+   - Removed browser fallback that caused false positives
+
+2. **Auto Tax Detection:**
+   - Created `intelligence-core/tax/location.py` with `TaxCalculator`
+   - IP geolocation via ip-api.com (free, no API key)
+   - Complete US state sales tax database (50 states + DC)
+   - 24-hour location caching to reduce API calls
+   - Returns location-aware tax rate in API response
+
+3. **Frontend Updates:**
+   - Added `product_name` display from LLM extraction
+   - Shows tax as "Tax (California) @ 8.85%"
+   - Improved progress feedback during optimization
+
+**Files Modified:**
+- `intelligence-core/cashback/monitor.py` – Rewrote TopCashback scraper
+- `intelligence-core/api/server.py` – Added tax detection to API
+- `app-frontend/main.py` – Added tax location display
 
 ---
 
