@@ -128,7 +128,7 @@
 ---
 
 ### Phase 2: The "Eyes" 👁️
-**Target:** v0.3.0 | **Status:** 🔄 Partially Complete
+**Target:** v0.3.0 | **Status:** ✅ Complete
 
 | Task | Status | Priority |
 |------|--------|----------|
@@ -137,22 +137,23 @@
 | Build screencast pipeline (Screenshot → Base64 → Redis) | ✅ | 🔴 Critical |
 | Integrate `ui.interactive_image` in NiceGUI | ✅ | 🔴 Critical |
 | Implement click-relay from UI to Playwright | ✅ | 🟡 Medium |
-| Test end-to-end visual debugging | ⬜ | 🔴 Critical |
+| Test end-to-end visual debugging | ✅ | 🔴 Critical |
 
-**Milestone:** Type URL in UI and watch browser load in dashboard
+**Milestone:** ✅ Type URL in UI and watch browser load in dashboard
 
 ---
 
 ### Phase 3: The "Brain" & "Memory" 🧠
-**Target:** v0.4.0 | **Status:** 🔄 Partially Complete
+**Target:** v0.4.0 | **Status:** 🔄 In Progress
 
 | Task | Status | Priority |
 |------|--------|----------|
 | Deploy Ollama container with Llama 3 | ✅ | 🔴 Critical |
 | Create semantic router function calling | ✅ | 🔴 Critical |
 | Deploy Firefly III + MariaDB | ✅ | 🔴 Critical |
+| Expose Firefly III on port 8081 | ✅ | 🟡 Medium |
 | Generate Firefly API token | ⬜ | 🟡 Medium |
-| Build Python wrapper for Firefly API | ⬜ | 🟡 Medium |
+| Build Python wrapper for Firefly API | ✅ | 🟡 Medium |
 | Implement intent classification prompts | ✅ | 🟡 Medium |
 
 **Milestone:** User query routes correctly to scraper or ledger
