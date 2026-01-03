@@ -3,7 +3,7 @@
 
 # Core Framework
 playwright>=1.49.0
-playwright-stealth>=1.0.6
+playwright_stealth>=1.0.6
 
 # Web Framework for API
 fastapi>=0.115.0

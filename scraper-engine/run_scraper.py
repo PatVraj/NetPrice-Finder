@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import redis.asyncio as redis
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 import structlog
 
 # =============================================================================
@@ -124,7 +124,8 @@ class ScraperEngine:
         
         # Create page and apply stealth patches
         self.page = await self.context.new_page()
-        await stealth_async(self.page)
+        stealth = Stealth()
+        await stealth.apply_stealth_async(self.page)
         
         logger.info("Scraper Engine initialized successfully")
         

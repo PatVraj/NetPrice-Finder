@@ -14,15 +14,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DISPLAY=:99 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies for GPU + Xvfb
+# Install system dependencies for GPU + Xvfb (Ubuntu 24.04 Noble package names)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     x11-utils \
     xauth \
     libgl1-mesa-dri \
-    libgl1-mesa-glx \
-    libegl1-mesa \
-    libgles2-mesa \
+    libgl1 \
+    libegl1 \
+    libgles2 \
     libvulkan1 \
     mesa-vulkan-drivers \
     curl \
@@ -44,16 +44,9 @@ COPY . .
 # Create data directory
 RUN mkdir -p /app/data /app/screenshots
 
-# Create startup script
-RUN echo '#!/bin/bash\n\
-# Start Xvfb with GPU-friendly settings\n\
-Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &\n\
-sleep 2\n\
-# Verify display\n\
-echo "Display: $DISPLAY"\n\
-# Start the scraper\n\
-exec python run_scraper.py\n\
-' > /app/start.sh && chmod +x /app/start.sh
+# Copy startup script and make executable
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 # Expose API port
 EXPOSE 5000

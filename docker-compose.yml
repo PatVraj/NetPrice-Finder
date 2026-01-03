@@ -86,6 +86,9 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - OLLAMA_HOST=0.0.0.0
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - ollama_data:/root/.ollama
     networks:
