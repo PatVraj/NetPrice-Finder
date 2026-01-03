@@ -1,0 +1,194 @@
+# =============================================================================
+# SSIP - Sovereign Smart Intelligence Platform
+# Docker Compose Configuration
+# =============================================================================
+# Prerequisites:
+#   - Docker Engine 24.0+ with Compose v2.4+
+#   - NVIDIA Container Toolkit (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+#   - NVIDIA GPU with updated drivers
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # 1. FRONTEND & ORCHESTRATOR - NiceGUI Dashboard
+  # ===========================================================================
+  app-frontend:
+    build:
+      context: ./app-frontend
+      dockerfile: Dockerfile
+    container_name: ssip-frontend
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - FIREFLY_API_URL=http://firefly-iii:8080
+      - OLLAMA_API_URL=http://intelligence-core:11434
+      - SCRAPER_API_URL=http://scraper-engine:5000
+    volumes:
+      - ./app-frontend:/app
+      - frontend_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ssip-internal
+      - ssip-public
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # 2. SCRAPER ENGINE - Playwright + Xvfb + GPU
+  # ===========================================================================
+  scraper-engine:
+    build:
+      context: ./scraper-engine
+      dockerfile: Dockerfile
+    container_name: ssip-scraper
+    runtime: nvidia
+    environment:
+      - DISPLAY=:99
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all  # Essential for WebGL masquerading
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./scraper-engine:/app
+      - scraper_data:/app/data
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ssip-internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, display, video, compute, utility]
+    restart: unless-stopped
+
+  # ===========================================================================
+  # 3. INTELLIGENCE CORE - Ollama LLM Server
+  # ===========================================================================
+  intelligence-core:
+    image: ollama/ollama:latest
+    container_name: ssip-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ssip-internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================================================================
+  # 4. FINANCIAL LEDGER - Firefly III
+  # ===========================================================================
+  firefly-iii:
+    image: fireflyiii/core:latest
+    container_name: ssip-firefly
+    environment:
+      - APP_KEY=${FIREFLY_APP_KEY}
+      - DB_CONNECTION=mysql
+      - DB_HOST=ledger-db
+      - DB_PORT=3306
+      - DB_DATABASE=${MYSQL_DATABASE:-firefly}
+      - DB_USERNAME=${MYSQL_USER:-firefly}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - APP_URL=http://localhost:${FIREFLY_PORT:-8081}
+      - TRUSTED_PROXIES=**
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+    ports:
+      - "${FIREFLY_PORT:-8081}:8080"
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+    networks:
+      - ssip-internal
+    restart: unless-stopped
+
+  # ===========================================================================
+  # 5. LEDGER DATABASE - MariaDB
+  # ===========================================================================
+  ledger-db:
+    image: mariadb:lts
+    container_name: ssip-mariadb
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-firefly}
+      - MYSQL_USER=${MYSQL_USER:-firefly}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - ssip-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ===========================================================================
+  # 6. MESSAGE BUS - Redis
+  # ===========================================================================
+  redis:
+    image: redis:alpine
+    container_name: ssip-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - ssip-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  ssip-internal:
+    driver: bridge
+    internal: true  # No external access
+  ssip-public:
+    driver: bridge  # External access for frontend only
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  frontend_data:
+  scraper_data:
+  ollama_data:
+  firefly_upload:
+  mariadb_data:
+  redis_data:

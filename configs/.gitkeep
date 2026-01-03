@@ -1,0 +1,5 @@
+# Configs directory placeholder
+# This directory contains configuration files for:
+# - Firefly III
+# - Redis
+# - Nginx (for production reverse proxy)
