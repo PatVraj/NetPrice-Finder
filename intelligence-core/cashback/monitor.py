@@ -1,7 +1,7 @@
 """
-Cashback Monitor for SSIP
-Checks cashback rates across Rakuten, Honey, TopCashback, and other platforms.
-Finds the best cashback offer for any retailer.
+Cashback & Promo Code Monitor for SSIP
+Checks cashback rates AND promo codes across Rakuten, Honey, TopCashback, and other platforms.
+Finds the best cashback offer and available promo codes for any retailer.
 """
 
 import os
@@ -38,6 +38,41 @@ class CashbackPlatform(Enum):
     IBOTTA = "ibotta"
     RETAILMENOT = "retailmenot"
     DOSH = "dosh"
+
+
+@dataclass
+class PromoCode:
+    """A promo/coupon code from a platform."""
+    platform: CashbackPlatform
+    merchant: str
+    code: str
+    description: str = ""
+    
+    # Discount info
+    discount_percent: Optional[float] = None  # e.g., 20 for 20% off
+    discount_amount: Optional[float] = None   # e.g., $10 off
+    minimum_purchase: Optional[float] = None  # e.g., $50 minimum
+    
+    # Metadata
+    expires: Optional[str] = None
+    verified: bool = False
+    success_rate: Optional[float] = None  # e.g., 85% success
+    last_used: Optional[str] = None
+    affiliate_url: Optional[str] = None
+    
+    def to_dict(self) -> dict:
+        result = asdict(self)
+        result["platform"] = self.platform.value
+        return result
+    
+    @property
+    def effective_value(self) -> float:
+        """Estimated value for comparison (assume $100 purchase)."""
+        if self.discount_percent:
+            return self.discount_percent
+        if self.discount_amount:
+            return self.discount_amount
+        return 0.0
 
 
 @dataclass
@@ -86,29 +121,41 @@ class MerchantCashback:
     """Aggregated cashback info for a merchant across all platforms."""
     merchant: str
     offers: list[CashbackOffer] = field(default_factory=list)
+    promo_codes: list[PromoCode] = field(default_factory=list)
     best_offer: Optional[CashbackOffer] = None
+    best_promo: Optional[PromoCode] = None
     checked_at: Optional[str] = None
     
     def __post_init__(self):
         self._update_best()
     
     def _update_best(self):
-        """Update the best offer based on effective rate."""
+        """Update the best offer and promo based on effective rate."""
         if self.offers:
             self.best_offer = max(self.offers, key=lambda o: o.effective_rate)
+        if self.promo_codes:
+            self.best_promo = max(self.promo_codes, key=lambda p: p.effective_value)
     
     def add_offer(self, offer: CashbackOffer):
         """Add an offer and update best."""
         self.offers.append(offer)
         self._update_best()
     
+    def add_promo(self, promo: PromoCode):
+        """Add a promo code and update best."""
+        self.promo_codes.append(promo)
+        self._update_best()
+    
     def to_dict(self) -> dict:
         return {
             "merchant": self.merchant,
             "offers": [o.to_dict() for o in self.offers],
+            "promo_codes": [p.to_dict() for p in self.promo_codes],
             "best_offer": self.best_offer.to_dict() if self.best_offer else None,
+            "best_promo": self.best_promo.to_dict() if self.best_promo else None,
             "checked_at": self.checked_at,
             "total_platforms": len(self.offers),
+            "total_promos": len(self.promo_codes),
         }
 
 
@@ -251,10 +298,78 @@ class RakutenScraper:
             pass
         
         return offers
+    
+    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list[PromoCode]:
+        """Get promo codes from Rakuten for a merchant."""
+        promos = []
+        
+        try:
+            # Rakuten has coupon pages for merchants
+            slug = merchant.lower().replace(" ", "-").replace("'", "")
+            url = f"{self.BASE_URL}/{slug}/coupons"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # Look for coupon codes on the page
+                # Pattern: "CODE: XXXXX" or data-code="XXXXX"
+                code_patterns = [
+                    r'data-code="([A-Z0-9]+)"',
+                    r'code["\s:]+([A-Z0-9]{4,20})',
+                    r'coupon["\s:]+([A-Z0-9]{4,20})',
+                ]
+                
+                seen_codes = set()
+                for pattern in code_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    for code in matches[:5]:
+                        code_upper = code.upper()
+                        if code_upper not in seen_codes and len(code_upper) >= 4:
+                            seen_codes.add(code_upper)
+                            
+                            # Try to find description near the code
+                            desc_match = re.search(
+                                rf'{code}[^<]*?(\d+%?\s*off|free\s*shipping|\$\d+\s*off)',
+                                html, re.IGNORECASE
+                            )
+                            description = desc_match.group(1) if desc_match else ""
+                            
+                            # Parse discount from description
+                            percent = None
+                            amount = None
+                            if '%' in description:
+                                pct_match = re.search(r'(\d+)%', description)
+                                if pct_match:
+                                    percent = float(pct_match.group(1))
+                            elif '$' in description:
+                                amt_match = re.search(r'\$(\d+)', description)
+                                if amt_match:
+                                    amount = float(amt_match.group(1))
+                            
+                            promos.append(PromoCode(
+                                platform=CashbackPlatform.RAKUTEN,
+                                merchant=merchant,
+                                code=code_upper,
+                                description=description or f"Promo code for {merchant}",
+                                discount_percent=percent,
+                                discount_amount=amount,
+                                affiliate_url=url,
+                            ))
+                            
+        except Exception:
+            pass
+        
+        return promos
 
 
 class HoneyScraper:
-    """Scrape cashback rates from Honey (PayPal Honey)."""
+    """Scrape cashback rates and promo codes from Honey (PayPal Honey)."""
     
     # Honey uses a different approach - browser extension primarily
     # But they have merchant pages that can be scraped
@@ -303,6 +418,60 @@ class HoneyScraper:
             pass
         
         return offers
+    
+    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list[PromoCode]:
+        """Get promo codes from Honey for a merchant."""
+        promos = []
+        
+        try:
+            slug = merchant.lower().replace(" ", "-").replace("'", "")
+            url = f"{self.BASE_URL}/shop/{slug}"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # Honey shows promo codes on merchant pages
+                # Look for coupon/code sections
+                code_patterns = [
+                    r'"code"\s*:\s*"([A-Z0-9]+)"',
+                    r'data-coupon-code="([A-Z0-9]+)"',
+                    r'class="[^"]*coupon[^"]*"[^>]*>([A-Z0-9]{4,20})<',
+                ]
+                
+                seen_codes = set()
+                for pattern in code_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    for code in matches[:5]:
+                        code_upper = code.upper()
+                        if code_upper not in seen_codes and len(code_upper) >= 4:
+                            seen_codes.add(code_upper)
+                            
+                            # Try to find success rate
+                            success_match = re.search(
+                                rf'{code}[^<]*?(\d+)%\s*success',
+                                html, re.IGNORECASE
+                            )
+                            success_rate = float(success_match.group(1)) if success_match else None
+                            
+                            promos.append(PromoCode(
+                                platform=CashbackPlatform.HONEY,
+                                merchant=merchant,
+                                code=code_upper,
+                                description=f"Honey verified code for {merchant}",
+                                success_rate=success_rate,
+                                affiliate_url=url,
+                            ))
+                            
+        except Exception:
+            pass
+        
+        return promos
 
 
 class TopCashbackScraper:
@@ -536,6 +705,71 @@ class TopCashbackScraper:
                     )
         
         return None
+    
+    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list[PromoCode]:
+        """Get promo codes from TopCashback for a merchant."""
+        promos = []
+        
+        try:
+            slug = self._make_slug(merchant)
+            url = f"{self.BASE_URL}/{slug}/coupons"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            response = await client.get(url, headers=headers, follow_redirects=True, timeout=10.0)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # TopCashback shows coupon codes in various formats
+                code_patterns = [
+                    r'data-code="([A-Z0-9]+)"',
+                    r'class="[^"]*code[^"]*"[^>]*>([A-Z0-9]{4,20})<',
+                    r'"couponCode"\s*:\s*"([A-Z0-9]+)"',
+                ]
+                
+                seen_codes = set()
+                for pattern in code_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    for code in matches[:5]:
+                        code_upper = code.upper()
+                        if code_upper not in seen_codes and len(code_upper) >= 4:
+                            seen_codes.add(code_upper)
+                            
+                            # Try to extract discount info
+                            desc_match = re.search(
+                                rf'{code}[^<]*?(\d+%\s*off|\$\d+\s*off|free\s*shipping)',
+                                html, re.IGNORECASE
+                            )
+                            description = desc_match.group(1) if desc_match else ""
+                            
+                            percent = None
+                            amount = None
+                            if '%' in description:
+                                pct_match = re.search(r'(\d+)%', description)
+                                if pct_match:
+                                    percent = float(pct_match.group(1))
+                            elif '$' in description:
+                                amt_match = re.search(r'\$(\d+)', description)
+                                if amt_match:
+                                    amount = float(amt_match.group(1))
+                            
+                            promos.append(PromoCode(
+                                platform=CashbackPlatform.TOPCASHBACK,
+                                merchant=merchant,
+                                code=code_upper,
+                                description=description or f"TopCashback code for {merchant}",
+                                discount_percent=percent,
+                                discount_amount=amount,
+                                affiliate_url=url,
+                            ))
+                            
+        except Exception:
+            pass
+        
+        return promos
 
 
 class BeFrugalScraper:
@@ -583,6 +817,50 @@ class BeFrugalScraper:
             pass
         
         return offers
+    
+    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list[PromoCode]:
+        """Get promo codes from BeFrugal for a merchant."""
+        promos = []
+        
+        try:
+            slug = merchant.lower().replace(" ", "-")
+            url = f"{self.BASE_URL}/coupons/{slug}"
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # BeFrugal has coupon codes on merchant pages
+                code_patterns = [
+                    r'data-coupon-code="([A-Z0-9]+)"',
+                    r'class="[^"]*coupon[^"]*code[^"]*"[^>]*>([A-Z0-9]{4,20})<',
+                    r'"code"\s*:\s*"([A-Z0-9]+)"',
+                ]
+                
+                seen_codes = set()
+                for pattern in code_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    for code in matches[:5]:
+                        code_upper = code.upper()
+                        if code_upper not in seen_codes and len(code_upper) >= 4:
+                            seen_codes.add(code_upper)
+                            promos.append(PromoCode(
+                                platform=CashbackPlatform.BEFRUGAL,
+                                merchant=merchant,
+                                code=code_upper,
+                                description=f"BeFrugal code for {merchant}",
+                                affiliate_url=url,
+                            ))
+                            
+        except Exception:
+            pass
+        
+        return promos
 
 
 class SwagbucksScraper:
@@ -781,6 +1059,81 @@ class CashbackMonitor:
         self._set_cached(merchant, merchant_cashback)
         
         return merchant_cashback
+    
+    async def find_best_cashback_and_promos(
+        self,
+        merchant: str,
+        platforms: Optional[list[CashbackPlatform]] = None,
+    ) -> MerchantCashback:
+        """
+        Find the best cashback offer AND promo codes for a merchant.
+        
+        Args:
+            merchant: Merchant/store name (e.g., "Amazon", "Target")
+            platforms: Specific platforms to check (default: all configured)
+            
+        Returns:
+            MerchantCashback with all offers, promo codes, and best highlighted
+        """
+        # Check cache first
+        cached = self._get_cached(merchant)
+        if cached and cached.promo_codes:  # Only use cache if it has promo data
+            return cached
+        
+        platforms_to_check = platforms or self.platforms
+        client = await self._get_client()
+        
+        # Query all platforms for cashback AND promos in parallel
+        cashback_tasks = []
+        promo_tasks = []
+        
+        for platform in platforms_to_check:
+            scraper = self._scrapers.get(platform)
+            if scraper:
+                cashback_tasks.append(self._safe_scrape(scraper, merchant, client, platform))
+                # Check if scraper has promo code method
+                if hasattr(scraper, 'get_promo_codes'):
+                    promo_tasks.append(self._safe_scrape_promos(scraper, merchant, client, platform))
+        
+        # Run cashback and promo scraping in parallel
+        all_tasks = cashback_tasks + promo_tasks
+        all_results = await asyncio.gather(*all_tasks)
+        
+        # Split results
+        cashback_results = all_results[:len(cashback_tasks)]
+        promo_results = all_results[len(cashback_tasks):]
+        
+        # Aggregate results
+        merchant_cashback = MerchantCashback(
+            merchant=merchant,
+            checked_at=datetime.now().isoformat(),
+        )
+        
+        for offers in cashback_results:
+            for offer in offers:
+                merchant_cashback.add_offer(offer)
+        
+        for promos in promo_results:
+            for promo in promos:
+                merchant_cashback.add_promo(promo)
+        
+        # Cache the result
+        self._set_cached(merchant, merchant_cashback)
+        
+        return merchant_cashback
+    
+    async def _safe_scrape_promos(
+        self,
+        scraper,
+        merchant: str,
+        client: httpx.AsyncClient,
+        platform: CashbackPlatform,
+    ) -> list[PromoCode]:
+        """Safely scrape promo codes, catching errors."""
+        try:
+            return await scraper.get_promo_codes(merchant, client)
+        except Exception as e:
+            return []
     
     async def _safe_scrape(
         self,

@@ -85,6 +85,14 @@ class QuickPriceRequest(BaseModel):
     tax_rate: float = Field(0, ge=0, le=1)
     shipping: float = Field(0, ge=0)
 
+class PromoCodeInfo(BaseModel):
+    """A promo/coupon code found from a platform."""
+    code: str
+    source: str
+    description: Optional[str] = None
+    discount_percent: Optional[float] = None
+    discount_amount: Optional[float] = None
+
 class SavingsResponse(BaseModel):
     """Response with savings breakdown."""
     product_name: str
@@ -93,6 +101,7 @@ class SavingsResponse(BaseModel):
     original_url: str
     coupon_code: Optional[str]
     coupon_discount: float
+    available_promo_codes: List[PromoCodeInfo] = Field(default_factory=list)
     tax: float
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -251,6 +260,18 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
             
             logger.info(f"Best option: {product.name}, price=${savings.product_price}, net=${savings.net_price}")
             
+            # Build promo code list for response
+            promo_codes = [
+                PromoCodeInfo(
+                    code=p.get("code", ""),
+                    source=p.get("source", ""),
+                    description=p.get("description"),
+                    discount_percent=p.get("discount_percent"),
+                    discount_amount=p.get("discount_amount"),
+                )
+                for p in result.available_promo_codes
+            ]
+            
             return SavingsResponse(
                 product_name=product.name,
                 product_price=savings.product_price,
@@ -258,6 +279,7 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 original_url=product.url,
                 coupon_code=savings.coupon_code,
                 coupon_discount=savings.coupon_savings,
+                available_promo_codes=promo_codes,
                 tax=savings.tax,
                 tax_rate=tax_rate * 100,  # Convert to percentage
                 tax_location=tax_location,

@@ -177,6 +177,9 @@ class OptimizationResult:
     # Best option
     best_option: Optional[RetailerOption] = None
     
+    # Promo codes found from cashback platforms
+    available_promo_codes: list[dict] = field(default_factory=list)
+    
     # Comparison stats
     cheapest_gross: float = 0.0
     cheapest_net: float = 0.0
@@ -193,6 +196,7 @@ class OptimizationResult:
             "query_type": self.query_type,
             "options": [o.to_dict() for o in self.options],
             "best_option": self.best_option.to_dict() if self.best_option else None,
+            "available_promo_codes": self.available_promo_codes,
             "cheapest_gross": self.cheapest_gross,
             "cheapest_net": self.cheapest_net,
             "max_savings": self.max_savings,
@@ -653,6 +657,9 @@ class NetPriceOptimizer:
         
         # Lazy imports to avoid circular dependencies
         self._cashback_monitor = None
+        
+        # Store promo codes found during optimization
+        self._found_promo_codes: list[dict] = []
     
     async def _get_cashback_monitor(self):
         """Lazy load cashback monitor."""
@@ -684,6 +691,9 @@ class NetPriceOptimizer:
         """
         start_time = asyncio.get_event_loop().time()
         
+        # Reset promo codes for new optimization
+        self._found_promo_codes = []
+        
         result = OptimizationResult(
             query=query,
             query_type="url" if self._is_url(query) else "search",
@@ -697,6 +707,7 @@ class NetPriceOptimizer:
                 options = await self._optimize_search(query)
             
             result.options = options
+            result.available_promo_codes = self._found_promo_codes
             
             if options:
                 # Sort by net price
@@ -772,12 +783,15 @@ class NetPriceOptimizer:
         
         steps = []
         
-        # 1. Find best cashback
+        # 1. Find best cashback AND promo codes
         cashback_monitor = await self._get_cashback_monitor()
         retailer_name = product.retailer or "Unknown"
         
+        promo_codes_from_platforms = []
+        
         try:
-            cashback_result = await cashback_monitor.find_best_cashback(retailer_name)
+            # Get both cashback offers AND promo codes from all platforms
+            cashback_result = await cashback_monitor.find_best_cashback_and_promos(retailer_name)
             
             if cashback_result.best_offer:
                 offer = cashback_result.best_offer
@@ -788,6 +802,18 @@ class NetPriceOptimizer:
                 steps.append(
                     f"Go through {offer.platform.value.title()} for {offer.cashback_text}"
                 )
+            
+            # Store promo codes for later use AND save to instance for API response
+            promo_codes_from_platforms = cashback_result.promo_codes
+            for promo in promo_codes_from_platforms:
+                self._found_promo_codes.append({
+                    "code": promo.code,
+                    "source": promo.platform.value,
+                    "description": promo.description,
+                    "discount_percent": promo.discount_percent,
+                    "discount_amount": promo.discount_amount,
+                })
+            
         except Exception:
             pass
         
@@ -810,16 +836,34 @@ class NetPriceOptimizer:
             except Exception:
                 pass
         
-        # 3. Find coupons
-        if self.enable_coupon_testing and product.url:
+        # 3. Find coupons (from RetailMeNot + promo codes from cashback platforms)
+        all_coupon_codes = []
+        
+        # Add promo codes from cashback platforms (Rakuten, Honey, TopCashback, etc.)
+        for promo in promo_codes_from_platforms:
+            all_coupon_codes.append({
+                "code": promo.code,
+                "source": promo.platform.value.title(),
+                "terms": promo.description,
+                "discount_percent": promo.discount_percent,
+                "discount_amount": promo.discount_amount,
+            })
+        
+        # Also search traditional coupon sites
+        if product.url:
             try:
-                coupons = await self.coupon_finder.find_coupons(retailer_name)
-                
-                # Test top coupons
+                retailmenot_coupons = await self.coupon_finder.find_coupons(retailer_name)
+                all_coupon_codes.extend(retailmenot_coupons)
+            except Exception:
+                pass
+        
+        # Test coupons if enabled
+        if self.enable_coupon_testing and product.url and all_coupon_codes:
+            try:
                 best_coupon = None
                 best_discount = 0
                 
-                for coupon in coupons[:3]:  # Test top 3
+                for coupon in all_coupon_codes[:5]:  # Test top 5
                     result = await self.coupon_finder.test_coupon(
                         product.url,
                         coupon["code"],
@@ -828,15 +872,37 @@ class NetPriceOptimizer:
                     
                     if result.works and result.discount_amount > best_discount:
                         best_coupon = result
+                        best_coupon.source = coupon.get("source", "Unknown")
                         best_discount = result.discount_amount
                 
                 if best_coupon:
                     savings.coupon_code = best_coupon.code
                     savings.coupon_savings = best_coupon.discount_amount
-                    steps.append(f"Apply coupon code: {best_coupon.code}")
+                    steps.append(f"Apply coupon code: {best_coupon.code} (from {best_coupon.source})")
                     
             except Exception:
                 pass
+        elif all_coupon_codes:
+            # Even without testing, suggest the best-looking promo code
+            best_promo = None
+            best_value = 0
+            
+            for coupon in all_coupon_codes:
+                value = coupon.get("discount_percent", 0) or coupon.get("discount_amount", 0) or 0
+                if value > best_value:
+                    best_value = value
+                    best_promo = coupon
+            
+            if best_promo:
+                savings.coupon_code = best_promo["code"]
+                # Estimate savings
+                if best_promo.get("discount_percent"):
+                    savings.coupon_savings = product.price * (best_promo["discount_percent"] / 100)
+                elif best_promo.get("discount_amount"):
+                    savings.coupon_savings = best_promo["discount_amount"]
+                
+                source = best_promo.get("source", "Unknown")
+                steps.append(f"Try promo code: {best_promo['code']} (from {source})")
         
         # Calculate totals
         savings.calculate_totals()

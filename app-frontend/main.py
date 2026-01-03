@@ -36,6 +36,15 @@ FIREFLY_API_URL = os.getenv("FIREFLY_API_URL", "http://firefly:8080")
 # =============================================================================
 
 @dataclass
+class PromoCodeResult:
+    """A promo code found from cashback platforms."""
+    code: str
+    source: str
+    description: Optional[str] = None
+    discount_percent: Optional[float] = None
+    discount_amount: Optional[float] = None
+
+@dataclass
 class PriceResult:
     """Result from price optimization."""
     product_name: str = ""
@@ -44,6 +53,7 @@ class PriceResult:
     original_url: str = ""
     coupon_code: Optional[str] = None
     coupon_discount: float = 0.0
+    available_promo_codes: List[PromoCodeResult] = field(default_factory=list)
     tax: float = 0.0
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -113,7 +123,23 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
             )
             if response.status_code == 200:
                 data = response.json()
-                return PriceResult(**{k: v for k, v in data.items() if k != 'timestamp'})
+                
+                # Parse promo codes
+                promo_codes = []
+                for p in data.get("available_promo_codes", []):
+                    promo_codes.append(PromoCodeResult(
+                        code=p.get("code", ""),
+                        source=p.get("source", ""),
+                        description=p.get("description"),
+                        discount_percent=p.get("discount_percent"),
+                        discount_amount=p.get("discount_amount"),
+                    ))
+                
+                # Build PriceResult, excluding timestamp and handling promo codes
+                result_data = {k: v for k, v in data.items() if k not in ['timestamp', 'available_promo_codes']}
+                result_data['available_promo_codes'] = promo_codes
+                
+                return PriceResult(**result_data)
             return None
     except Exception as e:
         print(f"API Error: {e}")
@@ -303,6 +329,8 @@ def create_search_hero():
                                 await update_progress(f"💵 Cashback available: {result.cashback_percent}%")
                             if result.coupon_code:
                                 await update_progress(f"🏷️ Coupon found: {result.coupon_code}")
+                            if result.available_promo_codes:
+                                await update_progress(f"🎫 Found {len(result.available_promo_codes)} promo codes!")
                             await update_progress("🎯 Calculating best net price...")
                             await asyncio.sleep(0.3)
                             
@@ -487,6 +515,29 @@ def create_results_display():
             
             if r.cashback_platform:
                 ui.button(f'Go to {r.cashback_platform}', icon='open_in_new').props('color=positive')
+        
+        # Available Promo Codes Section
+        if hasattr(r, 'available_promo_codes') and r.available_promo_codes:
+            with ui.card().classes('w-full mt-4 bg-gray-800'):
+                with ui.row().classes('items-center gap-2 mb-4'):
+                    ui.icon('sell', color='amber')
+                    ui.label(f'🎫 {len(r.available_promo_codes)} Promo Codes Found').classes('text-lg font-semibold text-amber-400')
+                
+                with ui.column().classes('gap-2 w-full'):
+                    for promo in r.available_promo_codes[:5]:  # Show top 5
+                        with ui.card().classes('w-full bg-gray-700'):
+                            with ui.row().classes('w-full justify-between items-center'):
+                                with ui.column().classes('gap-0'):
+                                    with ui.row().classes('items-center gap-2'):
+                                        ui.label(promo.code).classes('font-mono font-bold text-amber-300')
+                                        ui.badge(promo.source).props('color=blue')
+                                    if promo.description:
+                                        ui.label(promo.description).classes('text-sm text-gray-400')
+                                
+                                async def copy_promo(code=promo.code):
+                                    await ui.run_javascript(f'navigator.clipboard.writeText("{code}")')
+                                    ui.notify(f'Code "{code}" copied!', type='positive')
+                                ui.button('Copy', on_click=copy_promo, icon='content_copy').props('flat size=sm')
 
 def create_cards_page_content():
     """Create the card wallet management page."""
