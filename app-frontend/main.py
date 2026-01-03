@@ -265,38 +265,23 @@ def create_search_hero():
                 search_button.disable()
                 
                 try:
-                    # For demo, use quick calculate with mock data
-                    # In production, this would call find_best_price(query)
                     if query.startswith('http'):
                         ui.notify(f'Analyzing: {query}', type='info')
-                        await asyncio.sleep(1)  # Simulate API call
                         
-                        # Mock result for demo
-                        state.current_result = PriceResult(
-                            product_price=149.99,
-                            retailer="Nike.com",
-                            original_url=query,
-                            coupon_code="SAVE20",
-                            coupon_discount=30.00,
-                            tax=9.90,
-                            shipping=0.00,
-                            gross_total=129.89,
-                            cashback_platform="Rakuten",
-                            cashback_percent=8.0,
-                            cashback_value=10.39,
-                            card_name="Chase Sapphire Preferred" if state.user_cards else None,
-                            card_reward_percent=3.0 if state.user_cards else 0,
-                            card_reward_value=3.90 if state.user_cards else 0,
-                            net_price=115.60 if state.user_cards else 119.50,
-                            total_savings=34.39 if state.user_cards else 30.49,
-                            savings_percent=22.9 if state.user_cards else 20.3
-                        )
-                        ui.navigate.to('/results')
+                        # Call the real API
+                        result = await find_best_price(query)
+                        
+                        if result:
+                            state.current_result = result
+                            ui.navigate.to('/results')
+                        else:
+                            ui.notify('Could not analyze this product. The scraper may not support this site yet.', type='warning')
                     else:
                         ui.notify(f'Searching for: {query}', type='info')
-                        await asyncio.sleep(1)
                         ui.notify('Product search coming soon! Try pasting a direct URL.', type='info')
                         
+                except Exception as e:
+                    ui.notify(f'Error: {str(e)}', type='negative')
                 finally:
                     loading_spinner.visible = False
                     state.is_loading = False
@@ -433,7 +418,7 @@ def create_results_display():
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('credit_card_off', color='gray')
                     ui.label('No cards configured').classes('text-gray-500')
-                ui.button('Add Cards', on_click=lambda: ui.navigate.to('/cards'), size='sm').props('flat color=primary')
+                ui.button('Add Cards', on_click=lambda: ui.navigate.to('/cards')).props('flat color=primary size=sm')
         
         # Net Price (Final)
         with ui.card().classes('w-full bg-gradient-to-r from-green-900 to-emerald-900 mt-4'):

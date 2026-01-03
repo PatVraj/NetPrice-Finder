@@ -28,7 +28,7 @@ import httpx
 # Configuration
 # =============================================================================
 
-SCRAPER_HOST = os.getenv("SCRAPER_HOST", "http://scraper-engine:8000")
+SCRAPER_HOST = os.getenv("SCRAPER_HOST", "http://scraper-engine:5000")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 
 
@@ -289,46 +289,40 @@ class ProductScraper:
         """
         Scrape product info from a URL.
         
-        Uses the scraper-engine to render JavaScript and extract data.
+        Uses the scraper-engine to render JavaScript, then uses LLM
+        to intelligently extract product data from any page.
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                # Call scraper engine to navigate and extract
+                # First, navigate and get page content
                 response = await client.post(
                     f"{self.scraper_host}/extract",
                     json={
                         "url": url,
                         "selectors": {
-                            "title": [
-                                "h1[data-testid='product-title']",
-                                "h1.product-title",
-                                "h1#productTitle",
-                                "h1[itemprop='name']",
-                                "h1",
-                            ],
-                            "price": [
-                                "[data-testid='price']",
-                                ".price-current",
-                                ".a-price .a-offscreen",
-                                "[itemprop='price']",
-                                ".price",
-                            ],
-                            "original_price": [
-                                ".price-was",
-                                ".a-text-strike",
-                                ".original-price",
-                                "[data-testid='was-price']",
-                            ],
+                            # Generic selectors as hints - LLM will be primary
+                            "title": ["h1", "[itemprop='name']", ".product-title", ".product-name"],
+                            "price": ["[itemprop='price']", ".price", "[data-price]", ".product-price"],
+                            "original_price": [".original-price", ".was-price", ".list-price", "s", "del"],
                         },
                     },
                 )
                 
                 if response.status_code == 200:
                     data = response.json()
-                    return self._parse_scraped_data(data, url)
                     
-            except Exception:
-                pass
+                    # First try structured extraction
+                    result = self._parse_scraped_data(data, url)
+                    if result and result.price > 0:
+                        return result
+                    
+                    # Fallback to LLM extraction from HTML
+                    html = data.get("html", "")
+                    if html:
+                        return await self.scrape_with_llm(url, html)
+                    
+            except Exception as e:
+                print(f"Scrape error: {e}")
         
         return None
     
@@ -336,18 +330,37 @@ class ProductScraper:
         """
         Use LLM to extract product info from HTML.
         
-        Fallback when structured selectors fail.
+        Works on ANY website - the LLM understands page context.
         """
-        prompt = f"""Extract product information from this webpage HTML.
+        # Clean HTML - remove scripts, styles, and excessive whitespace
+        import re as regex
+        clean_html = regex.sub(r'<script[^>]*>[\s\S]*?</script>', '', html)
+        clean_html = regex.sub(r'<style[^>]*>[\s\S]*?</style>', '', clean_html)
+        clean_html = regex.sub(r'\s+', ' ', clean_html)
         
-Return a JSON object with:
-- name: Product name/title
-- price: Current price (number only, no currency symbol)
-- original_price: Original price if on sale (number only)
-- in_stock: true/false
+        prompt = f"""You are a product data extractor. Analyze this webpage HTML and extract product information.
 
-HTML (truncated):
-{html[:5000]}
+IMPORTANT: Look for the MAIN product being sold on this page. Find:
+1. The product name/title (usually in an h1 tag or prominent heading)
+2. The current/sale price (the price customers pay now)
+3. The original price if the item is on sale (crossed out or "was" price)
+4. Whether the product is in stock
+
+Return ONLY a JSON object, no other text:
+{{
+  "name": "Product Name Here",
+  "price": 99.99,
+  "original_price": null,
+  "in_stock": true
+}}
+
+Rules:
+- price and original_price must be numbers only (no $ or currency symbols)
+- If no original price, set to null
+- If you can't find a price, set to 0
+
+HTML:
+{clean_html[:8000]}
 
 JSON:"""
 
@@ -392,9 +405,11 @@ JSON:"""
     
     def _parse_scraped_data(self, data: dict, url: str) -> Optional[ProductInfo]:
         """Parse scraped data into ProductInfo."""
-        title = data.get("title", "")
-        price_text = data.get("price", "")
-        original_text = data.get("original_price", "")
+        # Handle new format from /extract endpoint
+        extracted = data.get("extracted", {})
+        title = extracted.get("title") or data.get("title", "")
+        price_text = extracted.get("price") or data.get("price", "")
+        original_text = extracted.get("original_price") or data.get("original_price", "")
         
         # Parse price
         price = self._parse_price(price_text)

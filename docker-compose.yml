@@ -22,6 +22,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - API_URL=http://api-server:8000
       - FIREFLY_API_URL=http://firefly-iii:8080
       - FIREFLY_API_TOKEN=${FIREFLY_API_TOKEN:-}
       - OLLAMA_API_URL=http://intelligence-core:11434
@@ -125,13 +126,15 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - OLLAMA_API_URL=http://intelligence-core:11434
-      - SCRAPER_API_URL=http://scraper-engine:5000
+      - OLLAMA_HOST=http://intelligence-core:11434
+      - SCRAPER_HOST=http://scraper-engine:5000
     volumes:
       - ./intelligence-core:/app
     depends_on:
       redis:
         condition: service_healthy
+      scraper-engine:
+        condition: service_started
     networks:
       - ssip-internal
       - ssip-public

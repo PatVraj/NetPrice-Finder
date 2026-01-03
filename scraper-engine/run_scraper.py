@@ -53,6 +53,19 @@ class ScrapeResult(BaseModel):
     content: Optional[str] = None
     screenshot: Optional[str] = None
 
+class ExtractRequest(BaseModel):
+    url: str
+    selectors: dict[str, list[str]]  # name -> list of CSS selectors to try
+    wait_for: str = "networkidle"
+    timeout: int = 30000
+
+class ExtractResult(BaseModel):
+    url: str
+    title: str
+    extracted: dict[str, Optional[str]]  # selector name -> extracted text
+    html: Optional[str] = None
+    screenshot: Optional[str] = None
+
 # =============================================================================
 # Scraper Engine
 # =============================================================================
@@ -341,6 +354,67 @@ async def get_screenshot():
     screenshot_bytes = await scraper.page.screenshot(type='jpeg', quality=SCREENSHOT_QUALITY)
     screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
     return {"screenshot": screenshot_b64}
+
+@app.post("/extract", response_model=ExtractResult)
+async def extract_data(request: ExtractRequest):
+    """
+    Navigate to a URL and extract data using CSS selectors.
+    
+    For each selector name, tries multiple CSS selectors in order
+    and returns the first match found.
+    """
+    if not scraper.page:
+        raise HTTPException(status_code=503, detail="Scraper not initialized")
+    
+    try:
+        # Navigate to the URL
+        logger.info("Extracting data from URL", url=request.url)
+        await scraper.page.goto(
+            request.url, 
+            wait_until=request.wait_for, 
+            timeout=request.timeout
+        )
+        
+        title = await scraper.page.title()
+        extracted = {}
+        
+        # Try each selector group
+        for name, selectors in request.selectors.items():
+            extracted[name] = None
+            for selector in selectors:
+                try:
+                    element = await scraper.page.query_selector(selector)
+                    if element:
+                        text = await element.inner_text()
+                        if text and text.strip():
+                            extracted[name] = text.strip()
+                            break
+                except Exception:
+                    continue
+        
+        # Get page HTML for LLM fallback
+        html = await scraper.page.content()
+        
+        # Take a screenshot
+        screenshot_bytes = await scraper.page.screenshot(
+            type='jpeg',
+            quality=SCREENSHOT_QUALITY
+        )
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+        
+        logger.info("Extraction complete", url=request.url, extracted=extracted)
+        
+        return ExtractResult(
+            url=request.url,
+            title=title,
+            extracted=extracted,
+            html=html[:50000] if html else None,  # Limit HTML size
+            screenshot=screenshot_b64
+        )
+        
+    except Exception as e:
+        logger.error("Extraction failed", url=request.url, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # Main Entry Point
