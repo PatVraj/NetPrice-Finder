@@ -507,6 +507,21 @@ def create_default_wallet() -> CardWallet:
 
 
 # =============================================================================
+# Popular Cards Dictionary (for API access)
+# =============================================================================
+
+POPULAR_CARDS = {
+    "Chase Sapphire Preferred": create_chase_sapphire_preferred,
+    "Amex Gold": create_amex_gold,
+    "American Express Gold": create_amex_gold,
+    "Citi Double Cash": create_citi_double_cash,
+    "Chase Freedom Flex": create_chase_freedom_flex,
+    "Discover it": create_discover_it,
+    "Amazon Prime Visa": create_amazon_prime_visa,
+}
+
+
+# =============================================================================
 # CLI for Testing
 # =============================================================================
 

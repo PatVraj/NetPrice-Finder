@@ -113,6 +113,36 @@ services:
       retries: 5
 
   # ===========================================================================
+  # 3b. API SERVER - FastAPI Net Price Optimizer
+  # ===========================================================================
+  api-server:
+    build:
+      context: ./intelligence-core
+      dockerfile: Dockerfile
+    container_name: ssip-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_API_URL=http://intelligence-core:11434
+      - SCRAPER_API_URL=http://scraper-engine:5000
+    volumes:
+      - ./intelligence-core:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ssip-internal
+      - ssip-public
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
   # 4. FINANCIAL LEDGER - Firefly III
   # ===========================================================================
   firefly-iii:

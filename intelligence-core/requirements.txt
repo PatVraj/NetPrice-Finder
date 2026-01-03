@@ -1,0 +1,22 @@
+# =============================================================================
+# Net Price Finder API - Python Dependencies
+# =============================================================================
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# HTTP Client
+httpx>=0.25.0
+aiohttp>=3.9.0
+
+# Redis for caching/messaging
+redis>=5.0.0
+
+# Utilities
+python-multipart>=0.0.6
+
+# Testing (optional - install with: pip install -r requirements.txt[test])
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
