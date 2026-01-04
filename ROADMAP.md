@@ -371,6 +371,7 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
+| `10fae56` | 2026-01-05 | 9 files | Remove promo code functionality entirely |
 | `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
 | `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
 | `4ca4219` | 2026-01-03 | 2 files | Fix cashback offers transparency in UI |
@@ -378,6 +379,37 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 | `0697291` | 2026-01-03 | 2 files | Add search page scraping strategy |
 | `c40a561` | 2026-01-03 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
 | `1d78394` | 2026-01-03 | 6 files | Modularize cashback scrapers into package |
+
+#### Session: 2026-01-05 – Remove Promo Code Functionality
+
+**Commit:** `10fae56`  
+**Analysis:** Promo codes from cashback sites (Rakuten, TopCashback, etc.) are not real promo codes – they are just marketing "deals" that describe sales (e.g., "Up to 40% off select styles"). These provide no actionable value.
+
+**Changes Made:**
+1. **monitor.py:** Removed `PromoCode` dataclass, `promo_codes` field from `MerchantCashback`, `_safe_scrape_promos()` method, renamed `find_best_cashback_and_promos` to just use `find_best_cashback`
+2. **All 5 scrapers:** Removed `get_promo_codes()` and `_parse_promo_codes()` methods
+3. **net_price.py:** Removed `available_promo_codes` from `OptimizationResult`, removed `_found_promo_codes` tracking
+4. **server.py:** Removed `PromoCodeInfo`, `PromoSearchResult` classes, removed `promo_sources_checked` from `SearchTransparency`, removed `available_promo_codes` from `SavingsResponse`
+5. **main.py (frontend):** Removed `PromoCodeResult`, `PromoSearchResult` dataclasses, removed promo code parsing logic, removed "🎫 Promo Codes Found" UI section, removed "🏷️ Promo Code Sources" transparency section
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/monitor.py` | Removed PromoCode, promo-related methods |
+| `intelligence-core/cashback/scrapers/base.py` | Removed get_promo_codes() |
+| `intelligence-core/cashback/scrapers/rakuten.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/topcashback.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/honey.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/befrugal.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/optimizer/net_price.py` | Removed promo code collection/tracking |
+| `intelligence-core/api/server.py` | Removed PromoCodeInfo, promo response fields |
+| `app-frontend/main.py` | Removed promo code UI sections |
+
+**Code Removed:** ~700 lines of dead promo code functionality
+
+**Note:** The `intelligence-core/retailer/` module still has promo code infrastructure (StoredPromoCode, etc.) but it's not actively used. Left in place for potential future use with verified retailer promo codes.
+
+---
 
 #### Session: 2026-01-03 – Cashback Scraper Overhaul
 
@@ -504,5 +536,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-05 (Cashback UI Transparency Fix)</em>
+  <em>Last updated: 2026-01-05 (Remove promo code functionality)</em>
 </p>
