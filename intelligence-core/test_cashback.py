@@ -12,7 +12,7 @@ from cashback.monitor import CashbackMonitor
 
 async def test():
     m = CashbackMonitor()
-    result = await m.find_best_cashback_and_promos('Nike')
+    result = await m.find_best_cashback('Nike')
     return result
 
 result = asyncio.run(test())
