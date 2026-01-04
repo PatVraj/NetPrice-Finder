@@ -222,25 +222,53 @@ CUSTOM_CSS = """
         --surface-light: #1f2937;
     }
     
+    /* Reset and base responsive styles */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+    
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100vh;
+        overflow-x: hidden;
+    }
+    
+    /* Responsive typography */
+    html {
+        font-size: 16px;
+    }
+    
+    @media (max-width: 640px) {
+        html { font-size: 14px; }
+    }
+    
+    /* Glass effect */
     .glass {
         background: rgba(31, 41, 55, 0.8);
         backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
     
+    /* Hero background */
     .hero-bg {
         background: linear-gradient(135deg, #064e3b 0%, #0f172a 50%, #1e1b4b 100%);
+        min-height: calc(100vh - 4rem);
     }
     
+    /* Text glow */
     .glow {
         text-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
     }
     
+    /* Stat cards */
     .stat-card {
         background: linear-gradient(145deg, #1f2937 0%, #111827 100%);
         border: 1px solid rgba(255, 255, 255, 0.05);
     }
     
+    /* Animations */
     .fade-in {
         animation: fadeIn 0.4s ease-out;
     }
@@ -250,6 +278,7 @@ CUSTOM_CSS = """
         to { opacity: 1; transform: translateY(0); }
     }
     
+    /* Search box */
     .search-box {
         background: rgba(17, 24, 39, 0.9) !important;
         border: 2px solid rgba(16, 185, 129, 0.2) !important;
@@ -258,6 +287,104 @@ CUSTOM_CSS = """
     
     .search-box:focus-within {
         border-color: #10b981 !important;
+    }
+    
+    /* Responsive hero text */
+    .hero-title {
+        font-size: clamp(2rem, 8vw, 3.75rem);
+        line-height: 1.1;
+    }
+    
+    .hero-subtitle {
+        font-size: clamp(1rem, 3vw, 1.25rem);
+    }
+    
+    /* Responsive containers */
+    .responsive-container {
+        width: 100%;
+        max-width: 100%;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .responsive-container {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .responsive-container {
+            max-width: 1024px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    }
+    
+    @media (min-width: 1280px) {
+        .responsive-container {
+            max-width: 1280px;
+        }
+    }
+    
+    /* Responsive stat cards grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(1, 1fr);
+        gap: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+    
+    /* Responsive tables */
+    .q-table {
+        width: 100%;
+        overflow-x: auto;
+    }
+    
+    /* Mobile nav adjustments */
+    @media (max-width: 640px) {
+        .nav-links {
+            display: none;
+        }
+        
+        .mobile-menu-btn {
+            display: block !important;
+        }
+    }
+    
+    /* Card responsive padding */
+    .card-responsive {
+        padding: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .card-responsive {
+            padding: 1.5rem;
+        }
+    }
+    
+    /* Flex wrap for mobile */
+    .flex-responsive {
+        flex-wrap: wrap;
+    }
+    
+    /* Full width inputs on mobile */
+    @media (max-width: 640px) {
+        .nicegui-input, .nicegui-select {
+            width: 100% !important;
+        }
     }
 </style>
 """
@@ -268,26 +395,32 @@ CUSTOM_CSS = """
 
 def create_navbar():
     """Create the navigation bar."""
-    with ui.header().classes('bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50'):
-        with ui.row().classes('w-full max-w-6xl mx-auto px-6 py-3 items-center justify-between'):
+    with ui.header().classes('bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50 fixed w-full top-0 z-50'):
+        with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 items-center justify-between'):
             with ui.link('/', target='_self').classes('no-underline'):
                 with ui.row().classes('items-center gap-2'):
                     ui.html('<span class="text-2xl">💰</span>', sanitize=False)
-                    ui.label('NetPrice').classes('text-xl font-bold text-white tracking-tight')
+                    ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
             
-            with ui.row().classes('items-center gap-4'):
+            with ui.row().classes('items-center gap-2 sm:gap-4'):
                 if is_authenticated():
                     user = get_current_user()
-                    ui.link('Search', '/').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
-                    ui.link('Cards', '/cards').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    # Hide text links on mobile, show on sm+
+                    ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    ui.link('Cards', '/cards').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
                     
                     if is_admin():
-                        ui.link('Admin', '/admin').classes('text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
+                        ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
                     
                     with ui.button(icon='account_circle').props('flat round size=sm color=gray'):
                         with ui.menu().classes('bg-gray-800'):
-                            ui.menu_item(f'{user.email}').props('disable').classes('text-gray-400')
+                            ui.menu_item(f'{user.email}').props('disable').classes('text-gray-400 text-xs sm:text-sm')
                             ui.separator()
+                            # Mobile-only nav items
+                            ui.menu_item('Search', lambda: ui.navigate.to('/')).classes('sm:hidden')
+                            ui.menu_item('Cards', lambda: ui.navigate.to('/cards')).classes('sm:hidden')
+                            if is_admin():
+                                ui.menu_item('Admin', lambda: ui.navigate.to('/admin')).classes('sm:hidden')
                             ui.menu_item('Settings', lambda: ui.navigate.to('/settings'))
                             ui.menu_item('Logout', lambda: do_logout())
                 else:
@@ -302,11 +435,11 @@ def do_logout():
 
 def create_hero_search():
     """Create the hero search section."""
-    with ui.element('div').classes('w-full hero-bg min-h-[70vh] flex items-center'):
-        with ui.column().classes('w-full max-w-3xl mx-auto px-6 py-20 items-center'):
-            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">Your True Price</h1>', sanitize=False)
+    with ui.element('div').classes('w-full hero-bg min-h-[calc(100vh-4rem)] flex items-center'):
+        with ui.column().classes('w-full max-w-3xl mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+            ui.html('<h1 class="hero-title font-bold text-white text-center mb-4 glow tracking-tight">Your True Price</h1>', sanitize=False)
             ui.label('Compare cashback across 5 platforms instantly').classes(
-                'text-xl text-gray-400 text-center mb-12'
+                'hero-subtitle text-gray-400 text-center mb-8 sm:mb-12'
             )
             
             with ui.card().classes('w-full glass rounded-2xl p-2'):
@@ -322,12 +455,12 @@ def create_hero_search():
                 ui.spinner('dots', size='lg', color='primary')
                 progress_label = ui.label('Analyzing...').classes('text-gray-400 mt-4')
             
-            with ui.row().classes('mt-20 gap-12 flex-wrap justify-center'):
+            with ui.row().classes('mt-12 sm:mt-20 gap-6 sm:gap-12 flex-wrap justify-center'):
                 for icon, val, lbl in [('💵', '5', 'Cashback Sites'), ('💳', '50+', 'Cards Supported'), ('⚡', '<3s', 'Analysis Time')]:
-                    with ui.column().classes('items-center'):
-                        ui.html(f'<span class="text-2xl">{icon}</span>', sanitize=False)
-                        ui.label(val).classes('text-xl font-bold text-white mt-2')
-                        ui.label(lbl).classes('text-gray-500 text-sm')
+                    with ui.column().classes('items-center min-w-[80px]'):
+                        ui.html(f'<span class="text-xl sm:text-2xl">{icon}</span>', sanitize=False)
+                        ui.label(val).classes('text-lg sm:text-xl font-bold text-white mt-2')
+                        ui.label(lbl).classes('text-gray-500 text-xs sm:text-sm text-center')
             
             async def search():
                 query = search_input.value.strip()
@@ -359,15 +492,15 @@ def create_hero_search():
 
 def create_landing():
     """Create landing page for non-authenticated users."""
-    with ui.element('div').classes('w-full hero-bg min-h-[85vh] flex items-center justify-center'):
-        with ui.column().classes('items-center px-6'):
-            ui.html('<span class="text-6xl mb-6">💰</span>', sanitize=False)
-            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">NetPrice Finder</h1>', sanitize=False)
-            ui.label('Find the TRUE cheapest price after all savings').classes('text-xl text-gray-400 text-center mb-10 max-w-lg')
+    with ui.element('div').classes('w-full hero-bg min-h-[calc(100vh-4rem)] flex items-center justify-center'):
+        with ui.column().classes('items-center px-4 sm:px-6 py-12'):
+            ui.html('<span class="text-5xl sm:text-6xl mb-4 sm:mb-6">💰</span>', sanitize=False)
+            ui.html('<h1 class="hero-title font-bold text-white text-center mb-4 glow tracking-tight">NetPrice Finder</h1>', sanitize=False)
+            ui.label('Find the TRUE cheapest price after all savings').classes('hero-subtitle text-gray-400 text-center mb-8 sm:mb-10 max-w-lg px-4')
             
-            with ui.row().classes('gap-4'):
-                ui.button('Get Started', on_click=lambda: ui.navigate.to('/register')).props('color=primary size=lg unelevated')
-                ui.button('Login', on_click=lambda: ui.navigate.to('/login')).props('flat text-color=white size=lg')
+            with ui.row().classes('gap-3 sm:gap-4 flex-wrap justify-center'):
+                ui.button('Get Started', on_click=lambda: ui.navigate.to('/register')).props('color=primary size=md unelevated')
+                ui.button('Login', on_click=lambda: ui.navigate.to('/login')).props('flat text-color=white size=md')
 
 def create_results():
     """Create results display."""
@@ -377,15 +510,15 @@ def create_results():
     
     r = state.current_result
     
-    with ui.column().classes('w-full max-w-2xl mx-auto px-6 py-8 fade-in'):
+    with ui.column().classes('w-full max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 fade-in'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
-        with ui.card().classes('w-full glass rounded-2xl p-6 mt-4'):
+        with ui.card().classes('w-full glass rounded-2xl p-4 sm:p-6 mt-4'):
             ui.label(r.retailer.upper()).classes('text-emerald-400 text-xs font-semibold tracking-widest')
-            ui.label(r.product_name or 'Product').classes('text-xl font-bold text-white mt-1')
-            ui.label(f'${r.product_price:.2f}').classes('text-2xl font-bold text-gray-500 mt-2')
+            ui.label(r.product_name or 'Product').classes('text-lg sm:text-xl font-bold text-white mt-1 break-words')
+            ui.label(f'${r.product_price:.2f}').classes('text-xl sm:text-2xl font-bold text-gray-500 mt-2')
         
-        with ui.card().classes('w-full glass rounded-2xl p-6 mt-4'):
+        with ui.card().classes('w-full glass rounded-2xl p-4 sm:p-6 mt-4'):
             ui.label('Breakdown').classes('text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider')
             
             lines = [('Product', f'${r.product_price:.2f}', 'text-white')]
@@ -428,11 +561,11 @@ def create_results():
 
 def create_login():
     """Create login form."""
-    with ui.column().classes('w-full max-w-sm mx-auto px-6 py-20 items-center'):
-        ui.label('Welcome back').classes('text-3xl font-bold text-white mb-2')
-        ui.label('Sign in to continue').classes('text-gray-400 mb-8')
+    with ui.column().classes('w-full max-w-sm mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+        ui.label('Welcome back').classes('text-2xl sm:text-3xl font-bold text-white mb-2')
+        ui.label('Sign in to continue').classes('text-gray-400 mb-6 sm:mb-8')
         
-        with ui.card().classes('w-full glass rounded-2xl p-8'):
+        with ui.card().classes('w-full glass rounded-2xl p-6 sm:p-8'):
             email = ui.input('Email').classes('w-full mb-4')
             password = ui.input('Password', password=True, password_toggle_button=True).classes('w-full mb-6')
             
@@ -460,11 +593,11 @@ def create_login():
 
 def create_register():
     """Create registration form."""
-    with ui.column().classes('w-full max-w-sm mx-auto px-6 py-20 items-center'):
-        ui.label('Create account').classes('text-3xl font-bold text-white mb-2')
-        ui.label('Start saving today').classes('text-gray-400 mb-8')
+    with ui.column().classes('w-full max-w-sm mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+        ui.label('Create account').classes('text-2xl sm:text-3xl font-bold text-white mb-2')
+        ui.label('Start saving today').classes('text-gray-400 mb-6 sm:mb-8')
         
-        with ui.card().classes('w-full glass rounded-2xl p-8'):
+        with ui.card().classes('w-full glass rounded-2xl p-6 sm:p-8'):
             email = ui.input('Email').classes('w-full mb-4')
             password = ui.input('Password', password=True, password_toggle_button=True).classes('w-full mb-4')
             confirm = ui.input('Confirm', password=True, password_toggle_button=True).classes('w-full mb-6')
@@ -513,31 +646,31 @@ async def create_admin():
     top_retailers = stats_data.get("top_retailers", [])
     platform_status = stats_data.get("platform_status", [])
     
-    with ui.column().classes('w-full max-w-6xl mx-auto px-6 py-8'):
-        ui.label('Admin Dashboard').classes('text-3xl font-bold text-white mb-8')
+    with ui.column().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
+        ui.label('Admin Dashboard').classes('text-2xl sm:text-3xl font-bold text-white mb-6 sm:mb-8')
         
         # Stats cards with real data
         total_retailers = db_stats.get("total_retailers", 0)
         total_cashback = db_stats.get("total_cashback_offers", 0)
         total_queries = db_stats.get("total_queries", 0)
         
-        with ui.row().classes('w-full gap-4 mb-8 flex-wrap'):
+        with ui.element('div').classes('stats-grid w-full mb-6 sm:mb-8'):
             for label, value, icon, color in [
                 ('Retailers', str(total_retailers), 'store', 'emerald'),
                 ('Cashback Entries', str(total_cashback), 'attach_money', 'blue'),
                 ('Total Queries', f'{total_queries:,}', 'search', 'purple'),
                 ('Users', str(len(state.users_db)), 'people', 'amber'),
             ]:
-                with ui.card().classes('flex-1 min-w-[200px] stat-card rounded-xl p-5'):
-                    with ui.row().classes('items-center gap-4'):
+                with ui.card().classes('stat-card rounded-xl p-4 sm:p-5'):
+                    with ui.row().classes('items-center gap-3 sm:gap-4'):
                         ui.icon(icon, size='md', color=color)
                         with ui.column().classes('gap-0'):
-                            ui.label(value).classes('text-2xl font-bold text-white')
+                            ui.label(value).classes('text-xl sm:text-2xl font-bold text-white')
                             ui.label(label).classes('text-gray-400 text-xs')
         
         # Top Retailers table with real data
-        with ui.card().classes('w-full glass rounded-xl p-6'):
-            ui.label('Top Retailers').classes('text-lg font-semibold text-white mb-4')
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Top Retailers').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             columns = [
                 {'name': 'rank', 'label': '#', 'field': 'rank', 'align': 'left'},
@@ -571,47 +704,47 @@ async def create_admin():
                 active = platform.get('active', False)
                 rate = platform.get('success_rate', '—')
                 
-                with ui.row().classes('w-full justify-between items-center py-3 border-b border-gray-700/30'):
-                    with ui.row().classes('items-center gap-3'):
+                with ui.row().classes('w-full justify-between items-center py-2 sm:py-3 border-b border-gray-700/30 flex-wrap gap-2'):
+                    with ui.row().classes('items-center gap-2 sm:gap-3'):
                         ui.icon('circle', size='xs', color='green' if active else 'red')
-                        ui.label(name).classes('text-white')
-                    ui.label('Active' if active else 'Inactive').classes('text-gray-400 text-sm')
-                    ui.label(rate).classes('text-emerald-400 font-medium')
+                        ui.label(name).classes('text-white text-sm sm:text-base')
+                    ui.label('Active' if active else 'Inactive').classes('text-gray-400 text-xs sm:text-sm hidden sm:block')
+                    ui.label(rate).classes('text-emerald-400 font-medium text-sm sm:text-base')
         
         # Users section (from in-memory state)
-        with ui.card().classes('w-full glass rounded-xl p-6 mt-6'):
-            ui.label('Users').classes('text-lg font-semibold text-white mb-4')
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
+            ui.label('Users').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             for u in state.users_db.values():
-                with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700/30'):
-                    ui.label(u.email).classes('text-white')
+                with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700/30 flex-wrap gap-2'):
+                    ui.label(u.email).classes('text-white text-sm sm:text-base break-all')
                     ui.badge('Admin' if u.is_admin else 'User').props(f'color={"positive" if u.is_admin else "gray"}')
-                    ui.label(u.created_at[:10]).classes('text-gray-500 text-sm')
+                    ui.label(u.created_at[:10]).classes('text-gray-500 text-xs sm:text-sm hidden sm:block')
 
 def create_cards():
     """Create cards page."""
-    with ui.column().classes('w-full max-w-4xl mx-auto px-6 py-8'):
+    with ui.column().classes('w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
-        ui.label('My Cards').classes('text-3xl font-bold text-white mt-4 mb-8')
+        ui.label('My Cards').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-6 sm:mb-8')
         
-        with ui.card().classes('w-full glass rounded-xl p-6'):
-            ui.label('Your Wallet').classes('text-lg font-semibold text-white mb-4')
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Your Wallet').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             if not state.user_cards:
-                with ui.column().classes('items-center py-8'):
+                with ui.column().classes('items-center py-6 sm:py-8'):
                     ui.icon('credit_card_off', size='xl', color='gray')
                     ui.label('No cards added').classes('text-gray-400 mt-4')
             else:
                 for card in state.user_cards:
-                    with ui.row().classes('w-full justify-between items-center p-4 bg-gray-800/50 rounded-lg mb-2'):
+                    with ui.row().classes('w-full justify-between items-center p-3 sm:p-4 bg-gray-800/50 rounded-lg mb-2 flex-wrap gap-2'):
                         with ui.column():
-                            ui.label(card.name).classes('text-white font-medium')
-                            ui.label(card.issuer).classes('text-gray-400 text-sm')
+                            ui.label(card.name).classes('text-white font-medium text-sm sm:text-base')
+                            ui.label(card.issuer).classes('text-gray-400 text-xs sm:text-sm')
                         ui.button(icon='close').props('flat round size=sm color=gray')
         
-        with ui.card().classes('w-full glass rounded-xl p-6 mt-6'):
-            ui.label('Add Cards').classes('text-lg font-semibold text-white mb-4')
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
+            ui.label('Add Cards').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             cards = [
                 UserCard("Chase Sapphire Preferred", "Chase", 1.0, ["3x Dining", "3x Travel"]),
@@ -619,9 +752,9 @@ def create_cards():
                 UserCard("Citi Double Cash", "Citi", 2.0, ["2% Everything"]),
             ]
             
-            with ui.row().classes('gap-4 flex-wrap'):
+            with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4'):
                 for c in cards:
-                    with ui.card().classes('w-56 bg-gray-800/50 hover:bg-gray-700/50 transition p-4 rounded-xl cursor-pointer'):
+                    with ui.card().classes('bg-gray-800/50 hover:bg-gray-700/50 transition p-4 rounded-xl cursor-pointer'):
                         ui.label(c.name).classes('text-white font-medium text-sm')
                         ui.label(c.issuer).classes('text-gray-400 text-xs')
                         ui.label(' · '.join(c.highlights)).classes('text-emerald-400 text-xs mt-2')
@@ -634,13 +767,13 @@ def create_cards():
 
 def create_settings():
     """Create settings page."""
-    with ui.column().classes('w-full max-w-xl mx-auto px-6 py-8'):
+    with ui.column().classes('w-full max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
-        ui.label('Settings').classes('text-3xl font-bold text-white mt-4 mb-8')
+        ui.label('Settings').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-6 sm:mb-8')
         
-        with ui.card().classes('w-full glass rounded-xl p-6'):
-            ui.label('Location').classes('text-lg font-semibold text-white mb-4')
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Location').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             states = ["California", "Texas", "New York", "Florida", "Oregon"]
             ui.select(states, label='State', value=state.user_location).classes('w-full')
@@ -648,8 +781,8 @@ def create_settings():
 def create_footer():
     """Create footer."""
     with ui.element('footer').classes('w-full bg-gray-900/50 border-t border-gray-800/50 mt-auto'):
-        with ui.row().classes('w-full max-w-6xl mx-auto px-6 py-6 justify-between items-center'):
-            ui.label('© 2026 NetPrice').classes('text-gray-500 text-sm')
+        with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 justify-center sm:justify-between items-center'):
+            ui.label('© 2026 NetPrice').classes('text-gray-500 text-xs sm:text-sm')
 
 # =============================================================================
 # Pages
