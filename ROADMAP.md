@@ -35,6 +35,7 @@
 |--------|------|---------------|-------------|
 | `5592a8d` | 2026-01-03 | 7 files | SQLite user database with full persistence |
 | `dffddff` | 2026-01-03 | 4 files | RetailerIntelligence integration for cashback caching |
+| `4b41f00` | 2026-01-03 | 5 files | Code review fixes: security, tests, refactoring |
 
 #### Session: 2026-01-03 – Data Persistence Implementation
 
@@ -96,6 +97,40 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 6. Store results to SQLite and warm Redis
 7. Return with cashback_from_cache=false, cashback_last_updated="Just scraped"
 ```
+
+#### Session: 2026-01-03 – Code Review Fixes
+
+**Files Modified:**
+- `app-frontend/database.py` – Security fixes and helper refactoring
+- `app-frontend/main.py` – Tax rate clearing fix, state.db None guards
+- `app-frontend/tests/test_database.py` – Additional test coverage
+- `intelligence-core/cashback/monitor.py` – Serialization fix and helper methods
+
+**Security Fixes:**
+1. **DEMO_MODE flag:** `verify_password` now only accepts `$demo$` hashes when `DEMO_MODE` is enabled
+2. **SQL injection prevention:** `update_user_settings` uses parameterized queries instead of string concatenation
+3. **state.db guards:** Protected pages (admin, settings, cards) check for `state.db` existence
+
+**Bug Fixes:**
+1. **Tax rate clearing:** Added `clear_tax_rate=True` parameter to properly set tax_rate to NULL
+2. **Cache serialization:** Replaced `__dict__` with proper `to_dict()` serialization
+
+**Test Coverage Added:**
+- `test_verify_password_malformed_sha256_hash` – Handles malformed/missing hash parts
+- `test_verify_password_malformed_bcrypt_hash` – Handles truncated/corrupted bcrypt
+- `test_verify_password_unknown_format` – Rejects unrecognized hash formats
+- `test_verify_demo_password_with_demo_mode` – Verifies DEMO_MODE gating
+- `test_verify_demo_password_without_demo_mode` – Ensures demo bypass fails in production
+- `test_get_user_savings_stats_empty_history` – Returns safe defaults for empty history
+- `test_get_user_savings_stats_nonexistent_user` – Handles missing user gracefully
+- `test_get_user_database_singleton_returns_same_instance` – Validates singleton pattern
+- `test_get_user_database_uses_env_path` – Validates USER_DB_PATH environment usage
+
+**Refactoring:**
+1. **database.py helpers:** Added `_row_to_user()`, `_row_to_card()`, `_serialize_bonus_categories()`
+2. **MerchantCashback:** Added `set_cache_metadata()` method for cleaner cache handling
+3. **CashbackMonitor helpers:** Extracted `_get_from_intelligence_cache()`, `_scrape_all_platforms()`, `_convert_stored_offer()`
+4. **find_best_cashback:** Reduced complexity from 100+ lines to ~25 lines using helpers
 
 #### Tasks Progress:
 
