@@ -18,6 +18,7 @@
 | Commit | Date | Description |
 |--------|------|-------------|
 | `0364149` | 2026-01-06 | Fix `user_tax_rate` AttributeError - Updated User class and find_best_price() |
+| `6aaba8c` | 2026-01-06 | Bug fixes and test suites for v0.8.0 QA |
 
 ---
 
@@ -172,7 +173,11 @@ Currently the app only finds cashback for the URL the user pastes. It doesn't se
 | Bug | Severity | File | Status |
 |-----|----------|------|--------|
 | `'AppState' object has no attribute 'user_tax_rate'` | 🔴 Critical | `main.py` | ✅ Fixed (`0364149`) |
-| Need comprehensive error handling review | 🔴 Critical | Multiple | ⬜ |
+| `authenticate_user` crashes on null email | 🔴 Critical | `database.py` | ✅ Fixed (`6aaba8c`) |
+| `get_user_by_email` crashes on null email | 🟡 Medium | `database.py` | ✅ Fixed (`6aaba8c`) |
+| `POPULAR_CARDS` iteration fails (factory vs object) | 🔴 Critical | `server.py` | ✅ Fixed (`6aaba8c`) |
+| `CardInfo` allows empty name / negative rate | 🟡 Medium | `server.py` | ✅ Fixed (`6aaba8c`) |
+| `/health` crashes if lifespan not run | 🟡 Medium | `server.py` | ✅ Fixed (`6aaba8c`) |
 
 **QA Tasks:**
 
@@ -180,14 +185,23 @@ Currently the app only finds cashback for the URL the user pastes. It doesn't se
 |------|--------|----------|-------|
 | Fix `user_tax_rate` AttributeError | ✅ | 🔴 Critical | User class + find_best_price() fixed |
 | Review all AppState attributes | ✅ | 🔴 Critical | No other broken refs found |
-| Add input validation across all forms | ⬜ | 🔴 Critical | Prevent invalid data |
+| Add input validation across all forms | ✅ | 🔴 Critical | `test_input_validation.py` (28 tests) |
 | Create end-to-end test for product search | ⬜ | 🔴 Critical | Full flow test |
-| Add API error handling tests | ⬜ | 🔴 Critical | Handle API failures gracefully |
+| Add API error handling tests | ✅ | 🔴 Critical | `test_error_handling.py` (36 tests) |
 | Test unauthenticated user flows | ⬜ | 🟡 Medium | Ensure proper redirects |
 | Test admin-only routes | ⬜ | 🟡 Medium | Verify access control |
 | Add database constraint tests | ⬜ | 🟡 Medium | Foreign keys, unique constraints |
 | Load testing with concurrent users | ⬜ | 🟢 Low | Performance under load |
 | Browser compatibility testing | ⬜ | 🟢 Low | Chrome, Firefox, Safari, Edge |
+
+**Test Suites Added (2026-01-06):**
+
+| File | Tests | Passed | Skipped | Coverage |
+|------|-------|--------|---------|----------|
+| `app-frontend/tests/test_input_validation.py` | 28 | 28 | 0 | Email, password, query, tax rate, location, auth |
+| `intelligence-core/tests/test_error_handling.py` | 36 | 27 | 9 | Input validation, malformed requests, wallet, responses |
+
+*Note: 9 tests skipped because they call endpoints that make real network requests (cashback providers)*
 
 **Test Strategy:**
 1. **Core Flow Tests** – Product search, cashback lookup, price optimization
