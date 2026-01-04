@@ -424,9 +424,12 @@ def create_navbar():
             with ui.row().classes('items-center gap-2 sm:gap-4'):
                 if is_authenticated():
                     user = get_current_user()
-                    # Hide text links on mobile, show on sm+
+                    # Show Cards button always (icon on mobile, text on desktop)
                     ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
-                    ui.link('Cards', '/cards').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    with ui.link('/cards', target='_self').classes('no-underline'):
+                        with ui.row().classes('items-center gap-1 text-gray-400 hover:text-white transition-colors'):
+                            ui.icon('credit_card', size='xs').classes('sm:hidden')
+                            ui.label('Cards').classes('hidden sm:block text-sm')
                     
                     if is_admin():
                         ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
@@ -902,6 +905,15 @@ def create_settings():
             ui.label('Account').classes('text-base sm:text-lg font-semibold text-white mb-4')
             ui.label(f'Email: {user.email}').classes('text-gray-300')
             ui.label(f'Member since: {user.created_at[:10] if user.created_at else "N/A"}').classes('text-gray-400 text-sm')
+        
+        # Card wallet quick access
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mb-4'):
+            with ui.row().classes('w-full justify-between items-center'):
+                with ui.column():
+                    ui.label('My Cards').classes('text-base sm:text-lg font-semibold text-white')
+                    card_count = len(state.db.get_user_cards(user.id))
+                    ui.label(f'{card_count} card{"s" if card_count != 1 else ""} in wallet').classes('text-gray-400 text-sm')
+                ui.button('Manage Cards', on_click=lambda: ui.navigate.to('/cards')).props('color=primary unelevated size=sm')
         
         # Location settings
         with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mb-4'):
