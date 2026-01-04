@@ -20,10 +20,15 @@ class HoneyScraper(BaseScraper):
     
     Honey uses "Honey Gold" instead of direct cashback.
     Honey Gold can be redeemed for gift cards.
+    
+    NOTE: Temporarily disabled - joinhoney.com may be blocked or down.
     """
     
     PLATFORM_NAME = "honey"
     BASE_URL = "https://www.joinhoney.com"
+    
+    # Temporarily disable this scraper (site unreachable)
+    ENABLED = False
     
     # Slug overrides for merchants with non-standard URLs
     SLUG_OVERRIDES = {
@@ -38,6 +43,11 @@ class HoneyScraper(BaseScraper):
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Search Honey for merchant cashback/rewards."""
         from ..monitor import CashbackOffer, CashbackPlatform
+        
+        # Skip if disabled
+        if not self.ENABLED:
+            logger.debug(f"[Honey] Scraper disabled - skipping {merchant}")
+            return []
         
         offers = []
         
@@ -117,70 +127,3 @@ class HoneyScraper(BaseScraper):
         ]
         html_lower = html.lower()
         return any(phrase in html_lower for phrase in not_found_phrases)
-    
-    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
-        """Get promo codes from Honey for a merchant."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        slugs_to_try = self._get_all_slugs(merchant)
-        
-        for slug in slugs_to_try:
-            url = f"{self.BASE_URL}/shop/{slug}"
-            
-            try:
-                response = await client.get(
-                    url,
-                    headers=self.get_headers(),
-                    follow_redirects=True,
-                    timeout=10.0,
-                )
-                
-                if response.status_code == 200 and not self._is_not_found(response.text):
-                    html = response.text
-                    promos = self._parse_promo_codes(merchant, html, url)
-                    if promos:
-                        return promos
-                        
-            except Exception as e:
-                logger.debug(f"[Honey] Promo fetch failed: {e}")
-        
-        return promos
-    
-    def _parse_promo_codes(self, merchant: str, html: str, url: str) -> list:
-        """Parse promo codes from HTML."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        seen_codes = set()
-        
-        code_patterns = [
-            r'"code"\s*:\s*"([A-Z0-9]+)"',
-            r'data-coupon-code="([A-Z0-9]+)"',
-            r'class="[^"]*coupon[^"]*"[^>]*>([A-Z0-9]{4,20})<',
-        ]
-        
-        for pattern in code_patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
-            for code in matches[:5]:
-                code_upper = code.upper()
-                if code_upper not in seen_codes and len(code_upper) >= 4:
-                    seen_codes.add(code_upper)
-                    
-                    # Try to find success rate
-                    success_match = re.search(
-                        rf'{code}[^<]*?(\d+)%\s*success',
-                        html, re.IGNORECASE
-                    )
-                    success_rate = float(success_match.group(1)) if success_match else None
-                    
-                    promos.append(PromoCode(
-                        platform=CashbackPlatform.HONEY,
-                        merchant=merchant,
-                        code=code_upper,
-                        description=f"Honey verified code for {merchant}",
-                        success_rate=success_rate,
-                        affiliate_url=url,
-                    ))
-        
-        return promos

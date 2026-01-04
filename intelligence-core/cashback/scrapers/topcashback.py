@@ -1,6 +1,6 @@
 """
 TopCashback Scraper
-Extracts cashback rates, deals, and promo codes from TopCashback.com
+Extracts cashback rates and deals from TopCashback.com
 """
 
 import re
@@ -485,80 +485,6 @@ class TopCashbackScraper(BaseScraper):
                 ))
         
         return deals
-    
-    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
-        """Get promo codes from TopCashback."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        slug = self._get_slug(merchant)
-        url = f"{self.BASE_URL}/{slug}/coupons"
-        
-        try:
-            response = await client.get(
-                url,
-                headers=self.get_headers(),
-                follow_redirects=True,
-                timeout=10.0,
-            )
-            
-            if response.status_code == 200:
-                html = response.text
-                promos = self._parse_promo_codes(merchant, html, url)
-                
-        except Exception as e:
-            logger.debug(f"[{self.PLATFORM_NAME}] Promo fetch failed: {e}")
-        
-        return promos
-    
-    def _parse_promo_codes(self, merchant: str, html: str, url: str) -> list:
-        """Parse promo codes from HTML."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        seen_codes = set()
-        
-        code_patterns = [
-            r'data-code="([A-Z0-9]+)"',
-            r'class="[^"]*code[^"]*"[^>]*>([A-Z0-9]{4,20})<',
-            r'"couponCode"\s*:\s*"([A-Z0-9]+)"',
-        ]
-        
-        for pattern in code_patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
-            for code in matches[:5]:
-                code_upper = code.upper()
-                if code_upper not in seen_codes and len(code_upper) >= 4:
-                    seen_codes.add(code_upper)
-                    
-                    # Try to extract discount info
-                    desc_match = re.search(
-                        rf'{code}[^<]*?(\d+%\s*off|\$\d+\s*off|free\s*shipping)',
-                        html, re.IGNORECASE
-                    )
-                    description = desc_match.group(1) if desc_match else ""
-                    
-                    percent, amount = None, None
-                    if '%' in description:
-                        pct_match = re.search(r'(\d+)%', description)
-                        if pct_match:
-                            percent = float(pct_match.group(1))
-                    elif '$' in description:
-                        amt_match = re.search(r'\$(\d+)', description)
-                        if amt_match:
-                            amount = float(amt_match.group(1))
-                    
-                    promos.append(PromoCode(
-                        platform=CashbackPlatform.TOPCASHBACK,
-                        merchant=merchant,
-                        code=code_upper,
-                        description=description or f"TopCashback code for {merchant}",
-                        discount_percent=percent,
-                        discount_amount=amount,
-                        affiliate_url=url,
-                    ))
-        
-        return promos
     
     def _get_slug(self, merchant: str) -> str:
         """Get primary URL slug for merchant."""

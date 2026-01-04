@@ -1,0 +1,23 @@
+erDiagram
+    RETAILERS {
+        INTEGER id PK
+        TEXT name
+        TEXT normalized_name
+    }
+
+    SCRAPE_HISTORY {
+        INTEGER id PK
+        INTEGER retailer_id FK
+        TEXT platform
+        INTEGER success
+        DATETIME scraped_at
+    }
+
+    CASHBACK_OFFERS {
+        INTEGER id PK
+        INTEGER retailer_id FK
+        REAL cashback_percent
+    }
+
+    RETAILERS ||--o{ SCRAPE_HISTORY : has_scrapes
+    RETAILERS ||--o{ CASHBACK_OFFERS : has_offers

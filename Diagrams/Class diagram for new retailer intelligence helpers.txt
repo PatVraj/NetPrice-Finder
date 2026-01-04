@@ -1,0 +1,25 @@
+classDiagram
+    class RetailerDatabase {
+        +_get_connection() sqlite3.Connection
+        +get_stats() dict
+        +get_top_retailers(limit: int) list
+        +get_platform_status() list
+    }
+
+    class RetailerIntelligence {
+        +db: RetailerDatabase
+        +get_stats() dict
+        +get_top_retailers(limit: int) list
+        +get_platform_status() list
+    }
+
+    class IntelligenceAPIHandler {
+        +get_intelligence_stats(request) dict
+    }
+
+    class SQLite_DB {
+    }
+
+    RetailerIntelligence --> RetailerDatabase : uses
+    IntelligenceAPIHandler --> RetailerIntelligence : calls
+    RetailerDatabase --> SQLite_DB : queries
