@@ -371,6 +371,7 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
+| `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
 | `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
 | `4ca4219` | 2026-01-03 | 2 files | Fix cashback offers transparency in UI |
 | `33fa32e` | 2026-01-03 | 2 files | Fix false positive matching in scrapers |
@@ -416,10 +417,14 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 |------|---------|
 | `intelligence-core/cashback/scrapers/rakuten.py` | Added `_search_page()`, `SLUG_OVERRIDES`, fixed regex |
 | `intelligence-core/cashback/scrapers/topcashback.py` | Added `_search_page()`, improved `_is_not_found()` |
+| `intelligence-core/cashback/scrapers/honey.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, `_get_all_slugs()` |
+| `intelligence-core/cashback/scrapers/befrugal.py` | Added `_search_page()`, `SLUG_OVERRIDES`, `_get_all_slugs()` |
+| `intelligence-core/cashback/scrapers/swagbucks.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, improved matching |
 | `intelligence-core/optimizer/net_price.py` | Store ALL offers, not just best; add `all_cashback_offers` |
 | `intelligence-core/api/server.py` | Use actual offers for transparency instead of guessing |
+| `app-frontend/main.py` | Enhanced UI progress with platform-by-platform status |
 
-**Result:** Pandora now shows Rakuten 4% correctly in UI
+**Result:** All 5 scrapers now have consistent search strategies and UI shows detailed progress
 
 ---
 
