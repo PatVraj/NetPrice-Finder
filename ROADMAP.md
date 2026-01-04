@@ -371,6 +371,7 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
+| `946ba91` | 2026-01-05 | 1 file | Modern UI refactor with auth and admin dashboard |
 | `10fae56` | 2026-01-05 | 9 files | Remove promo code functionality entirely |
 | `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
 | `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
@@ -408,6 +409,58 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 **Code Removed:** ~700 lines of dead promo code functionality
 
 **Note:** The `intelligence-core/retailer/` module still has promo code infrastructure (StoredPromoCode, etc.) but it's not actively used. Left in place for potential future use with verified retailer promo codes.
+
+---
+
+#### Session: 2026-01-05 – Modern UI Refactor with Auth
+
+**Commit:** `946ba91`  
+**Feature:** Complete frontend redesign with authentication and admin dashboard
+
+**Changes Made:**
+1. **Modern Design System:**
+   - Glass morphism effects with backdrop blur
+   - Hero gradient background (emerald → slate → indigo)
+   - Smooth fade-in animations
+   - Stat cards with gradient backgrounds
+   - Clean typography with proper spacing
+
+2. **Authentication System:**
+   - Login page (`/login`) with email/password
+   - Register page (`/register`) with password confirmation
+   - Logout functionality via navbar dropdown
+   - User session storage with `app.storage.user`
+   - SHA256 password hashing
+   - Demo admin: `admin@netprice.local` / `admin123`
+
+3. **Admin Dashboard (`/admin`):**
+   - Stats cards: Retailers, Cashback Entries, Queries, Users
+   - Top Retailers table: Query volume per retailer
+   - Platform Status: Live/disabled status per cashback platform
+   - Users table: All registered users with admin badges
+
+4. **Removed All Coupon References:**
+   - "🏷️ We find coupons automatically" text removed
+   - Clean messaging focused on cashback comparison
+   - No more "coupon" terminology in UI
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `app-frontend/main.py` | Complete rewrite (508 insertions, 645 deletions) |
+
+**New UI Flow:**
+- Unauthenticated users → Landing page with Get Started/Login buttons
+- Authenticated users → Hero search with product URL input
+- Admin users → Full dashboard access via Admin link in navbar
+
+**New Components:**
+- `create_navbar()` – Responsive nav with auth-aware menu
+- `create_hero_search()` – Animated search for authenticated users
+- `create_landing()` – Landing page for unauthenticated users
+- `create_login()` / `create_register()` – Glass-styled auth forms
+- `create_admin()` – Full admin dashboard with tables
+- `create_results()` – Price breakdown with cashback comparison
 
 ---
 
@@ -536,5 +589,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-05 (Remove promo code functionality)</em>
+  <em>Last updated: 2026-01-05 (Modern UI refactor with auth and admin dashboard)</em>
 </p>
