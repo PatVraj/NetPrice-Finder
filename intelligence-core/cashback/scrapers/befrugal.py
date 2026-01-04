@@ -1,6 +1,6 @@
 """
 BeFrugal Scraper
-Extracts cashback rates and promo codes from BeFrugal.com
+Extracts cashback rates from BeFrugal.com
 """
 
 import re
@@ -132,61 +132,3 @@ class BeFrugalScraper(BaseScraper):
         ]
         html_lower = html.lower()
         return any(phrase in html_lower for phrase in not_found_phrases)
-    
-    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
-        """Get promo codes from BeFrugal for a merchant."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        slugs_to_try = self._get_all_slugs(merchant)
-        
-        for slug in slugs_to_try:
-            url = f"{self.BASE_URL}/store/{slug}/"
-            
-            try:
-                response = await client.get(
-                    url,
-                    headers=self.get_headers(),
-                    follow_redirects=True,
-                    timeout=10.0,
-                )
-                
-                if response.status_code == 200 and not self._is_not_found(response.text):
-                    html = response.text
-                    promos = self._parse_promo_codes(merchant, html, url)
-                    if promos:
-                        return promos
-                    
-            except Exception as e:
-                logger.debug(f"[BeFrugal] Promo fetch failed: {e}")
-        
-        return promos
-    
-    def _parse_promo_codes(self, merchant: str, html: str, url: str) -> list:
-        """Parse promo codes from HTML."""
-        from ..monitor import PromoCode, CashbackPlatform
-        
-        promos = []
-        seen_codes = set()
-        
-        code_patterns = [
-            r'data-coupon-code="([A-Z0-9]+)"',
-            r'class="[^"]*coupon[^"]*code[^"]*"[^>]*>([A-Z0-9]{4,20})<',
-            r'"code"\s*:\s*"([A-Z0-9]+)"',
-        ]
-        
-        for pattern in code_patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
-            for code in matches[:5]:
-                code_upper = code.upper()
-                if code_upper not in seen_codes and len(code_upper) >= 4:
-                    seen_codes.add(code_upper)
-                    promos.append(PromoCode(
-                        platform=CashbackPlatform.BEFRUGAL,
-                        merchant=merchant,
-                        code=code_upper,
-                        description=f"BeFrugal code for {merchant}",
-                        affiliate_url=url,
-                    ))
-        
-        return promos
