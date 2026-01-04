@@ -125,12 +125,17 @@ class TopCashbackScraper(BaseScraper):
         offers = []
         
         try:
-            # Try API first (faster when available)
+            # Strategy 1: Search page (most reliable)
+            search_offers = await self._search_page(merchant, client)
+            if search_offers:
+                return search_offers
+            
+            # Strategy 2: Try API (may be limited)
             api_offers = await self._search_api(merchant, client)
             if api_offers:
                 return api_offers
             
-            # Fall back to browser scraping
+            # Strategy 3: Fall back to direct merchant page
             browser_offers = await self._scrape_merchant_page(merchant, client)
             if browser_offers:
                 return browser_offers
@@ -138,6 +143,99 @@ class TopCashbackScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"[{self.PLATFORM_NAME}] Error: {type(e).__name__}: {e}")
         
+        return offers
+    
+    async def _search_page(self, merchant: str, client: httpx.AsyncClient) -> list:
+        """
+        Scrape the TopCashback search results page.
+        
+        URL format: https://www.topcashback.com/search/merchants/?s=nike
+        Returns results like: "Nike Improved Offer 8% Cash Back"
+        """
+        from ..monitor import CashbackOffer, CashbackPlatform
+        
+        offers = []
+        search_url = f"{self.BASE_URL}/search/merchants/?s={merchant}"
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] Searching via page: {search_url}")
+        
+        data = await self._browser_extract(
+            client,
+            search_url,
+            {},  # No specific selectors - parse body_text
+            wait_for="networkidle",
+        )
+        
+        if not data:
+            logger.debug(f"[{self.PLATFORM_NAME}] Search page returned no data")
+            return offers
+        
+        body_text = data.get("body_text", "")
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] Search page body: {len(body_text)} chars")
+        
+        # Check if we found results
+        if "we found 0 results" in body_text.lower():
+            logger.debug(f"[{self.PLATFORM_NAME}] No search results for '{merchant}'")
+            return offers
+        
+        merchant_lower = merchant.lower()
+        
+        # Pattern: "Nike Improved Offer 8% Cash Back" or "Nike 8% Cash Back"
+        # Also handles "Up to X% Cash Back"
+        patterns = [
+            # "Nike Improved Offer 8% Cash Back" - with improved tag
+            rf'({re.escape(merchant)})\s*Improved\s*(?:Offer\s*)?(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
+            # "Nike 8% Cash Back" - standard format
+            rf'({re.escape(merchant)})\s*(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
+            # "Nike Up to 8% Cash Back"
+            rf'({re.escape(merchant)})\s*Up\s+to\s+(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, body_text, re.IGNORECASE)
+            if match:
+                percent = float(match.group(2))
+                if self._filter_valid_rate(percent):
+                    is_improved = "improved" in match.group(0).lower()
+                    
+                    logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search page){' (improved)' if is_improved else ''}")
+                    
+                    offers.append(CashbackOffer(
+                        platform=CashbackPlatform.TOPCASHBACK,
+                        merchant=merchant,
+                        cashback_percent=percent,
+                        cashback_fixed=None,
+                        cashback_text=f"{percent}% Cash Back",
+                        affiliate_url=f"{self.BASE_URL}/{self._get_slug(merchant)}/",
+                        last_updated=datetime.now().isoformat(),
+                        is_elevated=is_improved,
+                        confidence=0.95,
+                    ))
+                    return offers
+        
+        # Fallback: Check if merchant name is in results and find nearby rate
+        if merchant_lower in body_text.lower():
+            # Find where merchant name appears and look for rate nearby
+            rate_matches = re.findall(r'(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back', body_text, re.IGNORECASE)
+            if rate_matches:
+                for rate_str in rate_matches[:3]:
+                    percent = float(rate_str)
+                    if self._filter_valid_rate(percent):
+                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search fallback)")
+                        offers.append(CashbackOffer(
+                            platform=CashbackPlatform.TOPCASHBACK,
+                            merchant=merchant,
+                            cashback_percent=percent,
+                            cashback_fixed=None,
+                            cashback_text=f"{percent}% Cash Back",
+                            affiliate_url=f"{self.BASE_URL}/{self._get_slug(merchant)}/",
+                            last_updated=datetime.now().isoformat(),
+                            confidence=0.75,
+                        ))
+                        return offers
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] No matching merchant found in search results")
         return offers
     
     async def _search_api(self, merchant: str, client: httpx.AsyncClient) -> list:
