@@ -428,23 +428,26 @@ async def get_cashback_rates(request: CashbackRatesRequest):
     """
     try:
         async with CashbackMonitor() as monitor:
-            result = await monitor.get_best_cashback(request.merchant)
+            result = await monitor.find_best_cashback_and_promos(request.merchant)
+            
+            best_rate = result.best_offer.effective_rate if result.best_offer else 0.0
             
             return CashbackRatesResponse(
                 merchant=request.merchant,
-                best_platform=result.best_offer.platform if result.best_offer else None,
-                best_rate=result.best_rate,
+                best_platform=result.best_offer.platform.value if result.best_offer else None,
+                best_rate=best_rate,
                 rates=[
                     {
-                        "platform": offer.platform,
-                        "rate": offer.rate,
-                        "type": offer.rate_type,
-                        "terms": offer.terms
+                        "platform": offer.platform.value,
+                        "rate": offer.effective_rate,
+                        "type": "percent" if offer.cashback_percent else "fixed",
+                        "terms": offer.cashback_text or ""
                     }
                     for offer in result.offers
                 ]
             )
     except Exception as e:
+        logger.error(f"Error getting cashback rates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
