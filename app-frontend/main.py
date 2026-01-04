@@ -416,20 +416,17 @@ def create_navbar():
     """Create the navigation bar."""
     with ui.header().classes('bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50 fixed w-full top-0 z-50'):
         with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 items-center justify-between'):
-            with ui.link('/', target='_self').classes('no-underline'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.html('<span class="text-2xl">💰</span>', sanitize=False)
-                    ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
+            # Logo - clickable to go home
+            with ui.row().classes('items-center gap-2 cursor-pointer').on('click', lambda: ui.navigate.to('/')):
+                ui.html('<span class="text-2xl">💰</span>', sanitize=False)
+                ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
             
             with ui.row().classes('items-center gap-2 sm:gap-4'):
                 if is_authenticated():
                     user = get_current_user()
-                    # Show Cards button always (icon on mobile, text on desktop)
+                    # Navigation links
                     ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
-                    with ui.link('/cards', target='_self').classes('no-underline'):
-                        with ui.row().classes('items-center gap-1 text-gray-400 hover:text-white transition-colors'):
-                            ui.icon('credit_card', size='xs').classes('sm:hidden')
-                            ui.label('Cards').classes('hidden sm:block text-sm')
+                    ui.link('Cards', '/cards').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
                     
                     if is_admin():
                         ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
