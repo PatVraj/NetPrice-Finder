@@ -386,16 +386,20 @@ class CashbackMonitor:
         Returns:
             MerchantCashback with all offers, promo codes, and best highlighted
         """
-        logger.info(f"=== Starting cashback+promo search for '{merchant}' ===")
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"[CASHBACK] Starting search for '{merchant}'")
+        logger.info(f"{'='*60}")
         
         # Check cache first
         cached = self._get_cached(merchant)
         if cached and cached.promo_codes:  # Only use cache if it has promo data
-            logger.debug(f"Using cached result for '{merchant}'")
+            logger.info(f"[CACHE] Using cached result for '{merchant}'")
             return cached
         
         platforms_to_check = platforms or self.platforms
-        logger.info(f"Checking {len(platforms_to_check)} platforms: {[p.value for p in platforms_to_check]}")
+        platform_names = [p.value.title() for p in platforms_to_check]
+        logger.info(f"[SCRAPING] Checking {len(platforms_to_check)} platforms: {', '.join(platform_names)}")
         
         client = await self._get_client()
         
@@ -406,7 +410,7 @@ class CashbackMonitor:
         for platform in platforms_to_check:
             scraper = self._scrapers.get(platform)
             if scraper:
-                logger.debug(f"Adding scraper task for {platform.value}")
+                logger.info(f"[SCRAPING] Queuing {platform.value.title()} for {merchant}...")
                 cashback_tasks.append(self._safe_scrape(scraper, merchant, client, platform))
                 # Check if scraper has promo code method
                 if hasattr(scraper, 'get_promo_codes'):
@@ -441,7 +445,16 @@ class CashbackMonitor:
                 merchant_cashback.add_promo(promo)
                 total_promos += 1
         
-        logger.info(f"=== Search complete: {total_offers} offers, {total_promos} promos for '{merchant}' ===")
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"[COMPLETE] Search finished for '{merchant}'")
+        logger.info(f"[RESULTS] Found {total_offers} cashback offer(s), {total_promos} promo code(s)")
+        if merchant_cashback.best_offer:
+            best = merchant_cashback.best_offer
+            logger.info(f"[BEST] {best.platform.value.title()}: {best.cashback_text}")
+        else:
+            logger.info(f"[BEST] No cashback offers available")
+        logger.info(f"{'='*60}")
         
         # Cache the result
         self._set_cached(merchant, merchant_cashback)
@@ -456,13 +469,17 @@ class CashbackMonitor:
         platform: CashbackPlatform,
     ) -> list[PromoCode]:
         """Safely scrape promo codes, catching errors."""
+        platform_name = platform.value.title()
         try:
-            logger.debug(f"[{platform.value}] Fetching promo codes for '{merchant}'...")
+            logger.info(f"[{platform_name}] Searching promo codes for {merchant}...")
             promos = await scraper.get_promo_codes(merchant, client)
-            logger.info(f"[{platform.value}] Found {len(promos)} promo codes for '{merchant}'")
+            if promos:
+                logger.info(f"[{platform_name}] ✓ Found {len(promos)} promo code(s) for {merchant}")
+            else:
+                logger.info(f"[{platform_name}] ✗ No promo codes for {merchant}")
             return promos
         except Exception as e:
-            logger.warning(f"[{platform.value}] Promo scrape failed for '{merchant}': {e}")
+            logger.warning(f"[{platform_name}] ✗ Promo search failed for {merchant}: {e}")
             return []
     
     async def _safe_scrape(
@@ -473,23 +490,24 @@ class CashbackMonitor:
         platform: CashbackPlatform,
     ) -> list[CashbackOffer]:
         """Safely scrape a platform, catching errors."""
+        platform_name = platform.value.title()
         try:
-            logger.debug(f"[{platform.value}] Searching cashback for '{merchant}'...")
+            logger.info(f"[{platform_name}] Searching cashback for {merchant}...")
             offers = await scraper.search(merchant, client)
             if offers:
                 best_rate = max(o.effective_rate for o in offers) if offers else 0
-                logger.info(f"[{platform.value}] ✓ Found {len(offers)} offers for '{merchant}', best: {best_rate}%")
+                logger.info(f"[{platform_name}] ✓ Found: {best_rate}% Cash Back for {merchant}")
             else:
-                logger.info(f"[{platform.value}] ✗ No offers found for '{merchant}'")
+                logger.info(f"[{platform_name}] ✗ No cashback for {merchant}")
             return offers
         except httpx.TimeoutException:
-            logger.warning(f"[{platform.value}] Timeout for '{merchant}'")
+            logger.warning(f"[{platform_name}] ⏱ Timeout while searching {merchant}")
             return []
         except httpx.ConnectError as e:
-            logger.warning(f"[{platform.value}] Connection failed for '{merchant}': {e}")
+            logger.warning(f"[{platform_name}] ⚠ Connection failed for {merchant}")
             return []
         except Exception as e:
-            logger.warning(f"[{platform.value}] Scrape failed for '{merchant}': {type(e).__name__}: {e}")
+            logger.warning(f"[{platform_name}] ⚠ Error searching {merchant}: {type(e).__name__}")
             return []
     
     async def compare_merchants(

@@ -14,6 +14,7 @@ import os
 import re
 import json
 import asyncio
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Any
 from datetime import datetime
@@ -22,6 +23,8 @@ from urllib.parse import urlparse, quote_plus
 from enum import Enum
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -715,6 +718,11 @@ class NetPriceOptimizer:
         self._found_promo_codes = []
         self._found_cashback_offers = []
         
+        logger.info(f"")
+        logger.info(f"{'#'*70}")
+        logger.info(f"[OPTIMIZER] Starting price optimization for: {query[:80]}...")
+        logger.info(f"{'#'*70}")
+        
         result = OptimizationResult(
             query=query,
             query_type="url" if self._is_url(query) else "search",
@@ -755,10 +763,12 @@ class NetPriceOptimizer:
         options = []
         
         # 1. Scrape product info
+        logger.info(f"[SCRAPING] Extracting product info from URL...")
         product = await self.product_scraper.scrape_url(url)
         
         if not product:
             # Create basic product from URL
+            logger.info(f"[SCRAPING] Using retailer detection fallback...")
             retailer_info = detect_retailer(url)
             product = ProductInfo(
                 name="Product",
@@ -768,8 +778,11 @@ class NetPriceOptimizer:
                 mcc_code=retailer_info.get("mcc") if retailer_info else None,
                 url=url,
             )
+        else:
+            logger.info(f"[PRODUCT] {product.name} - ${product.price:.2f} at {product.retailer}")
         
         # 2. Calculate savings for this retailer
+        logger.info(f"[SAVINGS] Calculating all discounts and cashback...")
         option = await self._calculate_savings(product)
         if option:
             options.append(option)
@@ -845,11 +858,15 @@ class NetPriceOptimizer:
                     "discount_amount": promo.discount_amount,
                 })
             
-        except Exception:
-            pass
+            if promo_codes_from_platforms:
+                logger.info(f"[PROMOS] Found {len(promo_codes_from_platforms)} promo code(s) from cashback platforms")
+            
+        except Exception as e:
+            logger.warning(f"[CASHBACK] Error during search: {e}")
         
         # 2. Find best credit card
         if self.card_wallet and product.category:
+            logger.info(f"[CARDS] Checking wallet for best card in category: {product.category}")
             try:
                 best_card, card_info = self.card_wallet.get_best_card(
                     product.category,
@@ -861,13 +878,17 @@ class NetPriceOptimizer:
                 savings.credit_card_rewards = card_info["cash_value"]
                 
                 rate_str = f"{card_info['rate']}%" if card_info["reward_type"] == "cashback" else f"{card_info['rate']}x"
+                logger.info(f"[CARDS] ✓ Best card: {best_card.issuer} {best_card.name} ({rate_str})")
                 steps.append(
                     f"Pay with {best_card.issuer} {best_card.name} ({rate_str} on {product.category})"
                 )
             except Exception:
-                pass
+                logger.info(f"[CARDS] No matching card in wallet")
+        else:
+            logger.info(f"[CARDS] No card wallet configured")
         
         # 3. Find coupons (from RetailMeNot + promo codes from cashback platforms)
+        logger.info(f"[COUPONS] Searching for additional coupon codes...")
         all_coupon_codes = []
         
         # Add promo codes from cashback platforms (Rakuten, Honey, TopCashback, etc.)
@@ -943,6 +964,20 @@ class NetPriceOptimizer:
             steps.append("No special savings found - pay normally")
         
         steps.append(f"Net effective price: ${savings.net_price:.2f}")
+        
+        # Log final summary
+        logger.info(f"")
+        logger.info(f"{'#'*70}")
+        logger.info(f"[SUMMARY] Optimization complete for {retailer_name}")
+        logger.info(f"[SUMMARY] Product: ${savings.product_price:.2f} → Net: ${savings.net_price:.2f}")
+        logger.info(f"[SUMMARY] Total Savings: ${savings.total_savings:.2f}")
+        if savings.cashback_platform:
+            logger.info(f"[SUMMARY]   • Cashback: {savings.cashback_platform} {savings.cashback_percent}% = ${savings.cashback_amount:.2f}")
+        if savings.coupon_code:
+            logger.info(f"[SUMMARY]   • Coupon: {savings.coupon_code} = ${savings.coupon_savings:.2f}")
+        if savings.credit_card_name:
+            logger.info(f"[SUMMARY]   • Card: {savings.credit_card_name} = ${savings.credit_card_rewards:.2f}")
+        logger.info(f"{'#'*70}")
         
         return RetailerOption(
             retailer=retailer_name,

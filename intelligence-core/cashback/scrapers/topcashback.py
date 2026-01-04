@@ -126,22 +126,25 @@ class TopCashbackScraper(BaseScraper):
         
         try:
             # Strategy 1: Search page (most reliable)
+            logger.debug(f"[TopCashback] Strategy 1: Search page for '{merchant}'")
             search_offers = await self._search_page(merchant, client)
             if search_offers:
                 return search_offers
             
             # Strategy 2: Try API (may be limited)
+            logger.debug(f"[TopCashback] Strategy 2: API search for '{merchant}'")
             api_offers = await self._search_api(merchant, client)
             if api_offers:
                 return api_offers
             
             # Strategy 3: Fall back to direct merchant page
+            logger.debug(f"[TopCashback] Strategy 3: Direct page for '{merchant}'")
             browser_offers = await self._scrape_merchant_page(merchant, client)
             if browser_offers:
                 return browser_offers
                 
         except Exception as e:
-            logger.warning(f"[{self.PLATFORM_NAME}] Error: {type(e).__name__}: {e}")
+            logger.warning(f"[TopCashback] Error: {type(e).__name__}: {e}")
         
         return offers
     

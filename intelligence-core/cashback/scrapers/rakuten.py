@@ -68,16 +68,19 @@ class RakutenScraper(BaseScraper):
         
         try:
             # Strategy 1: Try the search page (most reliable for finding merchants)
+            logger.debug(f"[Rakuten] Strategy 1: Search page for '{merchant}'")
             search_offers = await self._search_page(merchant, client)
             if search_offers:
                 return search_offers
             
             # Strategy 2: Try the API (may be deprecated/limited)
+            logger.debug(f"[Rakuten] Strategy 2: API search for '{merchant}'")
             api_offers = await self._search_api(merchant, client)
             if api_offers:
                 return api_offers
             
             # Strategy 3: Fall back to direct merchant page scraping
+            logger.debug(f"[Rakuten] Strategy 3: Direct page for '{merchant}'")
             browser_offers = await self._scrape_merchant_page(merchant, client)
             if browser_offers:
                 return browser_offers
