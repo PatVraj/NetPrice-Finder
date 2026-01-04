@@ -362,6 +362,59 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 ---
 
+### Branch: `feature/ongoing-development`
+**Created:** 2026-01-05  
+**Merged:** Open  
+**Purpose:** Cashback scraper improvements and UI transparency fixes
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `4ca4219` | 2026-01-05 | 2 files | Fix cashback offers transparency in UI |
+| `33fa32e` | 2026-01-05 | 2 files | Fix false positive matching in scrapers |
+| `0697291` | 2026-01-05 | 2 files | Add search page scraping strategy |
+| `c40a561` | 2026-01-05 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
+| `1d78394` | 2026-01-05 | 6 files | Modularize cashback scrapers into package |
+
+#### Session: 2026-01-05 – Cashback Scraper Overhaul
+
+**Issues Fixed:**
+- 🐛 Pandora cashback not found (wrong URL slugs)
+- 🐛 API endpoints returning 404 for valid merchants
+- 🐛 False positive: FineJewelers 5% attributed to Pandora
+- 🐛 Rakuten 4% found in logs but UI showed "Not available"
+
+**Root Causes & Solutions:**
+
+1. **Wrong URL Slugs:** Added `SLUG_OVERRIDES` and `SLUG_ALTERNATIVES` for merchants with non-obvious URLs:
+   - `pandora` → `pandora-jewelry`
+   - `ulta` → `ultabeauty`
+
+2. **Search Page Strategy:** Implemented `_search_page()` as primary scraping method:
+   - Rakuten: `/search?term=X&type=suggest`
+   - TopCashback: `/search/merchants/?s=X`
+   - More reliable than direct store page URLs
+
+3. **False Positive Matching:** Removed loose fallback logic that grabbed ANY rate when merchant name appeared on page
+
+4. **UI Transparency Fix:** ALL cashback offers now passed through to API:
+   - Added `_found_cashback_offers` list to optimizer
+   - Added `all_cashback_offers` field to `OptimizationResult`
+   - Server uses actual scraper results instead of guessing
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/scrapers/rakuten.py` | Added `_search_page()`, `SLUG_OVERRIDES`, fixed regex |
+| `intelligence-core/cashback/scrapers/topcashback.py` | Added `_search_page()`, improved `_is_not_found()` |
+| `intelligence-core/optimizer/net_price.py` | Store ALL offers, not just best; add `all_cashback_offers` |
+| `intelligence-core/api/server.py` | Use actual offers for transparency instead of guessing |
+
+**Result:** Pandora now shows Rakuten 4% correctly in UI
+
+---
+
 ## 🔮 Future Versions
 
 ### v0.2.0 – Core Infrastructure
@@ -438,5 +491,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-04 (Retailer Intelligence System)</em>
+  <em>Last updated: 2026-01-05 (Cashback UI Transparency Fix)</em>
 </p>
