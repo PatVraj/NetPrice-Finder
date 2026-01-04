@@ -84,9 +84,6 @@ class RakutenScraper(BaseScraper):
             browser_offers = await self._scrape_merchant_page(merchant, client)
             if browser_offers:
                 return browser_offers
-            browser_offers = await self._scrape_merchant_page(merchant, client)
-            if browser_offers:
-                return browser_offers
                 
         except Exception as e:
             logger.warning(f"[{self.PLATFORM_NAME}] Error: {type(e).__name__}: {e}")
