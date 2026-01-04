@@ -67,12 +67,20 @@ class RakutenScraper(BaseScraper):
         offers = []
         
         try:
-            # Try the API first (faster and more reliable)
+            # Strategy 1: Try the search page (most reliable for finding merchants)
+            search_offers = await self._search_page(merchant, client)
+            if search_offers:
+                return search_offers
+            
+            # Strategy 2: Try the API (may be deprecated/limited)
             api_offers = await self._search_api(merchant, client)
             if api_offers:
                 return api_offers
             
-            # Fall back to browser scraping
+            # Strategy 3: Fall back to direct merchant page scraping
+            browser_offers = await self._scrape_merchant_page(merchant, client)
+            if browser_offers:
+                return browser_offers
             browser_offers = await self._scrape_merchant_page(merchant, client)
             if browser_offers:
                 return browser_offers
@@ -80,6 +88,106 @@ class RakutenScraper(BaseScraper):
         except Exception as e:
             logger.warning(f"[{self.PLATFORM_NAME}] Error: {type(e).__name__}: {e}")
         
+        return offers
+    
+    async def _search_page(self, merchant: str, client: httpx.AsyncClient) -> list:
+        """
+        Scrape the Rakuten search results page.
+        
+        This is the most reliable method as it shows all matching merchants
+        with their current cashback rates.
+        
+        URL format: https://www.rakuten.com/search?term=pandora&type=suggest
+        """
+        from ..monitor import CashbackOffer, CashbackPlatform
+        
+        offers = []
+        search_url = f"{self.BASE_URL}/search?term={merchant}&type=suggest"
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] Searching via page: {search_url}")
+        
+        data = await self._browser_extract(
+            client,
+            search_url,
+            {},  # No specific selectors - we'll parse body_text
+            wait_for="networkidle",
+        )
+        
+        if not data:
+            logger.debug(f"[{self.PLATFORM_NAME}] Search page returned no data")
+            return offers
+        
+        body_text = data.get("body_text", "")
+        html = data.get("html", "")
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] Search page body: {len(body_text)} chars")
+        
+        # Look for the merchant in the results
+        # Pattern: "PANDORA Jewelry4% Onlinewas 2%2% In-Store" or "Nike8% Online"
+        merchant_lower = merchant.lower()
+        
+        # Try to find the merchant section with rate
+        # Look for patterns like "PANDORA Jewelry4% Online" or "Nike8% Onlinewas 6%"
+        patterns = [
+            # Merchant name followed by rate: "PANDORA Jewelry4% Online"
+            rf'({re.escape(merchant)}[^0-9]*?)(\d+(?:\.\d+)?)\s*%\s*Online',
+            # Rate with "was X%" elevated indicator
+            rf'({re.escape(merchant)}[^0-9]*?)(\d+(?:\.\d+)?)\s*%\s*Online\s*was\s*(\d+(?:\.\d+)?)\s*%',
+            # Just the rate near merchant name
+            rf'{re.escape(merchant)}[^0-9]{{0,50}}(\d+(?:\.\d+)?)\s*%\s*(?:Cash\s*Back|Online)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, body_text, re.IGNORECASE)
+            if match:
+                # Get the rate (group 2 for first pattern, or last numeric group)
+                groups = match.groups()
+                # Find the percentage in the groups
+                for g in groups:
+                    if g and re.match(r'^\d+(?:\.\d+)?$', str(g)):
+                        percent = float(g)
+                        if self._filter_valid_rate(percent):
+                            # Check if it's an elevated rate
+                            is_elevated = "was" in match.group(0).lower()
+                            
+                            logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search page){' (elevated)' if is_elevated else ''}")
+                            
+                            offers.append(CashbackOffer(
+                                platform=CashbackPlatform.RAKUTEN,
+                                merchant=merchant,
+                                cashback_percent=percent,
+                                cashback_fixed=None,
+                                cashback_text=f"{percent}% Cash Back",
+                                affiliate_url=search_url,
+                                last_updated=datetime.now().isoformat(),
+                                is_elevated=is_elevated,
+                                confidence=0.95,
+                            ))
+                            return offers
+        
+        # Fallback: look for any rate pattern if merchant name is in page
+        if merchant_lower in body_text.lower():
+            # Find rates in the format "X% Online" or "X% Cash Back"
+            rate_matches = re.findall(r'(\d+(?:\.\d+)?)\s*%\s*(?:Online|Cash\s*Back)', body_text, re.IGNORECASE)
+            if rate_matches:
+                # Use the first reasonable rate found near the search term
+                for rate_str in rate_matches[:5]:
+                    percent = float(rate_str)
+                    if self._filter_valid_rate(percent):
+                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search fallback)")
+                        offers.append(CashbackOffer(
+                            platform=CashbackPlatform.RAKUTEN,
+                            merchant=merchant,
+                            cashback_percent=percent,
+                            cashback_fixed=None,
+                            cashback_text=f"{percent}% Cash Back",
+                            affiliate_url=search_url,
+                            last_updated=datetime.now().isoformat(),
+                            confidence=0.8,
+                        ))
+                        return offers
+        
+        logger.debug(f"[{self.PLATFORM_NAME}] No matching merchant found in search results")
         return offers
     
     async def _search_api(self, merchant: str, client: httpx.AsyncClient) -> list:
