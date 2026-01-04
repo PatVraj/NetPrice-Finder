@@ -6,15 +6,12 @@ Run: pytest tests/test_database.py -v
 """
 
 import pytest
-import sys
 import os
 import tempfile
 from pathlib import Path
 from datetime import datetime
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# Imports configured via conftest.py
 from retailer.database import RetailerDatabase
 from retailer.models import (
     Retailer,

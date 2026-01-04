@@ -6,14 +6,10 @@ Run: pytest tests/test_cashback.py -v
 """
 
 import pytest
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# Imports configured via conftest.py
 from cashback.monitor import (
     CashbackMonitor,
     CashbackOffer,
@@ -221,24 +217,24 @@ class TestCashbackMonitorIntegration:
     async def test_find_best_cashback_caches_result(self):
         """Test that results are cached and scrapers are not re-run."""
         monitor = CashbackMonitor(cache_enabled=True)
-
+        
         # Mock all scrapers and keep references to the AsyncMocks
         search_mocks = []
         for platform, scraper in monitor._scrapers.items():
             search_mock = AsyncMock(return_value=[])
             scraper.search = search_mock
             search_mocks.append(search_mock)
-
+        
         # First call executes scrapers and populates cache
         result1 = await monitor.find_best_cashback("Nike")
-
+        
         # Second call should use cache and not call scrapers again
         result2 = await monitor.find_best_cashback("Nike")
-
+        
         # Results should be merchant cashback objects
         assert isinstance(result1, MerchantCashback)
         assert isinstance(result2, MerchantCashback)
-
+        
         # Scrapers should only be awaited once across both calls
         for search_mock in search_mocks:
             search_mock.assert_awaited_once()
