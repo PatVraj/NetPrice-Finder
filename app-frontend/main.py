@@ -113,7 +113,6 @@ class AppState:
     redis_client: Optional[redis.Redis] = None
     current_result: Optional[PriceResult] = None
     db: Optional[UserDatabase] = None
-    last_search_url: Optional[str] = None
 
 state = AppState()
 
@@ -528,8 +527,8 @@ def create_hero_search():
                                 cashback_rate=result.cashback_percent
                             )
                         
-                        # Store URL for results page
-                        state.last_search_url = query
+                        # Store URL for results page in session storage (per-user)
+                        app.storage.user['last_search_url'] = query
                         ui.navigate.to('/results')
                     else:
                         ui.notify('Could not analyze product', type='warning')
@@ -598,7 +597,7 @@ def create_results():
         
         # Price history section
         user_id = get_current_user_id()
-        product_url = state.last_search_url
+        product_url = app.storage.user.get('last_search_url')
         if user_id and state.db and product_url:
             tracked_products = state.db.get_user_tracked_products(user_id, limit=100)
             tracked = next((p for p in tracked_products if p.product_url == product_url), None)
@@ -1042,10 +1041,10 @@ def create_tracking():
                 ui.label(f'{stats.get("total_tracked", 0)}').classes('text-2xl font-bold text-emerald-400')
                 ui.label('Products Tracked').classes('text-gray-400 text-sm')
             with ui.card().classes('glass rounded-xl p-4 flex-1'):
-                ui.label(f'{stats.get("products_at_lowest", 0)}').classes('text-2xl font-bold text-orange-400')
+                ui.label(f'{stats.get("at_lowest_price", 0)}').classes('text-2xl font-bold text-orange-400')
                 ui.label('At Lowest Price').classes('text-gray-400 text-sm')
             with ui.card().classes('glass rounded-xl p-4 flex-1'):
-                ui.label(f'{stats.get("products_with_alerts", 0)}').classes('text-2xl font-bold text-blue-400')
+                ui.label(f'{stats.get("with_alerts", 0)}').classes('text-2xl font-bold text-blue-400')
                 ui.label('With Alerts').classes('text-gray-400 text-sm')
         
         if not tracked_products:

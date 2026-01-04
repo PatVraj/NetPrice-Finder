@@ -162,9 +162,13 @@ class TrackedProduct:
     
     def _calculate_drop_percent(self) -> Optional[float]:
         """Calculate percentage drop from highest to current."""
-        if self.highest_price and self.current_price and self.highest_price > 0:
+        if (
+            self.highest_price is not None
+            and self.current_price is not None
+            and self.highest_price > 0
+        ):
             drop = ((self.highest_price - self.current_price) / self.highest_price) * 100
-            return round(drop, 1) if drop > 0 else None
+            return round(drop, 1) if drop > 0 else 0.0
         return None
 
 

@@ -523,7 +523,46 @@ class TestPriceTracking:
         assert product.current_price == 99.99
         assert product.lowest_price == 99.99
         assert product.highest_price == 99.99
-    
+        
+        # A single price history entry should be created for the initial track
+        assert product.price_history is not None
+        assert len(product.price_history) == 1
+        price_point = product.price_history[0]
+        assert isinstance(price_point, PricePoint)
+        assert price_point.price == 99.99
+
+    def test_track_product_no_price_history_on_none(self, db):
+        """No price history is created when initial_price is None on subsequent track."""
+        user = db.register_user("tracker3@example.com", "password123", "Tracker3")
+
+        # First track with an initial price to create the product and one history entry
+        product = db.track_product(
+            user_id=user.id,
+            product_url="https://amazon.com/product/789",
+            product_name="History Test Product",
+            retailer="amazon",
+            initial_price=50.00,
+            net_price=45.00,
+            cashback_rate=2.5,
+        )
+
+        assert len(product.price_history) == 1
+
+        # Track again with initial_price=None and ensure no new history entry is created
+        updated_product = db.track_product(
+            user_id=user.id,
+            product_url="https://amazon.com/product/789",
+            product_name="History Test Product",
+            retailer="amazon",
+            initial_price=None,
+            net_price=45.00,
+            cashback_rate=2.5,
+        )
+
+        # Same tracked product, and history count remains unchanged
+        assert updated_product.id == product.id
+        assert len(updated_product.price_history) == 1
+
     def test_track_product_price_update(self, db):
         """Track product with price change updates history."""
         user = db.register_user("tracker2@example.com", "password123", "Tracker2")
@@ -559,7 +598,7 @@ class TestPriceTracking:
         """Get a single tracked product with history."""
         user = db.register_user("getter@example.com", "password123", "Getter")
         
-        db.track_product(
+        tracked = db.track_product(
             user_id=user.id,
             product_url="https://walmart.com/product/789",
             product_name="Getter Product",
@@ -569,7 +608,8 @@ class TestPriceTracking:
             cashback_rate=2.5
         )
         
-        product = db.get_tracked_product(user.id, "https://walmart.com/product/789")
+        # Use the integer product ID, not the URL
+        product = db.get_tracked_product(user.id, tracked.id)
         
         assert product is not None
         assert product.product_name == "Getter Product"
@@ -579,7 +619,8 @@ class TestPriceTracking:
         """Get nonexistent product returns None."""
         user = db.register_user("notfound@example.com", "password123", "NotFound")
         
-        product = db.get_tracked_product(user.id, "https://nonexistent.com/product")
+        # Use a non-existent integer ID, not a URL
+        product = db.get_tracked_product(user.id, 99999)
         assert product is None
     
     def test_get_user_tracked_products(self, db):
@@ -601,11 +642,34 @@ class TestPriceTracking:
         products = db.get_user_tracked_products(user.id)
         assert len(products) == 3
     
+    def test_get_user_tracked_products_ordering(self, db):
+        """Verify products are returned in descending last_checked_at order."""
+        user = db.register_user("order@example.com", "password123", "Order")
+        
+        # Track products in sequence - the last one tracked should be first in results
+        for i in range(3):
+            db.track_product(
+                user_id=user.id,
+                product_url=f"https://store.com/ordered/{i}",
+                product_name=f"Ordered Product {i}",
+                retailer="store",
+                initial_price=10.00 * (i + 1),
+                net_price=9.00 * (i + 1),
+                cashback_rate=5.0
+            )
+        
+        products = db.get_user_tracked_products(user.id)
+        assert len(products) == 3
+        # Most recently tracked should be first (descending by last_checked_at)
+        assert products[0].product_name == "Ordered Product 2"
+        assert products[1].product_name == "Ordered Product 1"
+        assert products[2].product_name == "Ordered Product 0"
+
     def test_get_product_price_history(self, db):
         """Get price history for a product."""
         user = db.register_user("history@example.com", "password123", "History")
         
-        db.track_product(
+        tracked = db.track_product(
             user_id=user.id,
             product_url="https://store.com/history-product",
             product_name="History Product",
@@ -615,7 +679,7 @@ class TestPriceTracking:
             cashback_rate=5.0
         )
         
-        # Add more price points
+        # Add more price points by tracking again with new price
         db.track_product(
             user_id=user.id,
             product_url="https://store.com/history-product",
@@ -626,7 +690,8 @@ class TestPriceTracking:
             cashback_rate=5.0
         )
         
-        history = db.get_product_price_history(user.id, "https://store.com/history-product")
+        # Use product_id, not user_id and URL
+        history = db.get_product_price_history(tracked.id)
         assert len(history) == 2
         assert all(isinstance(p, PricePoint) for p in history)
     
@@ -634,7 +699,7 @@ class TestPriceTracking:
         """Update product price alert settings."""
         user = db.register_user("alert@example.com", "password123", "Alert")
         
-        db.track_product(
+        tracked = db.track_product(
             user_id=user.id,
             product_url="https://store.com/alert-product",
             product_name="Alert Product",
@@ -644,16 +709,18 @@ class TestPriceTracking:
             cashback_rate=5.0
         )
         
+        # Use product_id, not product_url
         success = db.update_product_alert(
             user_id=user.id,
-            product_url="https://store.com/alert-product",
+            product_id=tracked.id,
             target_price=75.00,
             alert_enabled=True
         )
         
         assert success is True
         
-        product = db.get_tracked_product(user.id, "https://store.com/alert-product")
+        # Use product_id to retrieve
+        product = db.get_tracked_product(user.id, tracked.id)
         assert product.target_price == 75.00
         assert product.alert_enabled is True
     
@@ -661,7 +728,7 @@ class TestPriceTracking:
         """Untrack a product."""
         user = db.register_user("untrack@example.com", "password123", "Untrack")
         
-        db.track_product(
+        tracked = db.track_product(
             user_id=user.id,
             product_url="https://store.com/untrack-product",
             product_name="Untrack Product",
@@ -671,10 +738,12 @@ class TestPriceTracking:
             cashback_rate=5.0
         )
         
-        success = db.untrack_product(user.id, "https://store.com/untrack-product")
+        # Use product_id, not URL
+        success = db.untrack_product(user.id, tracked.id)
         assert success is True
         
-        product = db.get_tracked_product(user.id, "https://store.com/untrack-product")
+        # Verify product no longer exists
+        product = db.get_tracked_product(user.id, tracked.id)
         assert product is None
     
     def test_get_products_with_price_drops(self, db):
@@ -682,7 +751,7 @@ class TestPriceTracking:
         user = db.register_user("drops@example.com", "password123", "Drops")
         
         # Product at target
-        db.track_product(
+        tracked = db.track_product(
             user_id=user.id,
             product_url="https://store.com/drop-product",
             product_name="Drop Product",
@@ -692,9 +761,10 @@ class TestPriceTracking:
             cashback_rate=5.0
         )
         
+        # Use product_id, not product_url
         db.update_product_alert(
             user_id=user.id,
-            product_url="https://store.com/drop-product",
+            product_id=tracked.id,
             target_price=90.00,
             alert_enabled=True
         )
@@ -741,9 +811,14 @@ class TestPriceTracking:
         
         stats = db.get_price_tracking_stats(user.id)
         
+        # Use the actual keys returned by get_price_tracking_stats
         assert stats["total_tracked"] == 2
-        assert "products_at_lowest" in stats
-        assert "products_with_alerts" in stats
+        assert "at_lowest_price" in stats
+        assert "with_alerts" in stats
+        assert "total_observations" in stats
+        # Both products are at their initial (lowest) price
+        assert stats["at_lowest_price"] == 2
+        assert stats["total_observations"] == 2
 
 
 class TestTrackedProductDataclass:
@@ -768,7 +843,7 @@ class TestTrackedProductDataclass:
         assert drop == 20.0  # 20% drop from 100 to 80
     
     def test_calculate_drop_percent_no_drop(self):
-        """Test when current equals highest."""
+        """Test when current equals highest - returns 0.0."""
         product = TrackedProduct(
             id=1,
             user_id=1,
@@ -783,10 +858,30 @@ class TestTrackedProductDataclass:
         )
         
         drop = product._calculate_drop_percent()
+        # When current == highest, drop is 0.0 (not None)
         assert drop == 0.0
     
-    def test_to_dict(self):
-        """Test TrackedProduct serialization."""
+    def test_calculate_drop_percent_zero_price(self):
+        """Test when price is zero - edge case with explicit None checks."""
+        product = TrackedProduct(
+            id=1,
+            user_id=1,
+            product_url="https://example.com/product",
+            product_name="Test",
+            retailer="test",
+            current_price=0.0,
+            lowest_price=0.0,
+            highest_price=100.00,
+            first_tracked_at="2024-01-01",
+            last_checked_at="2024-01-15"
+        )
+        
+        drop = product._calculate_drop_percent()
+        # 100% drop from 100 to 0
+        assert drop == 100.0
+    
+    def test_to_dict_with_drop(self):
+        """Test TrackedProduct serialization when there is a price drop."""
         product = TrackedProduct(
             id=1,
             user_id=1,
@@ -808,7 +903,33 @@ class TestTrackedProductDataclass:
         assert data["current_price"] == 89.99
         assert data["lowest_price"] == 79.99
         assert data["highest_price"] == 99.99
+        # ~10% drop from 99.99 to 89.99
         assert data["price_drop_percent"] is not None
+        assert data["price_drop_percent"] == 10.0
+    
+    def test_to_dict_no_drop(self):
+        """Test TrackedProduct serialization when current >= highest (no drop)."""
+        product = TrackedProduct(
+            id=1,
+            user_id=1,
+            product_url="https://example.com/product",
+            product_name="Test Product",
+            retailer="amazon",
+            current_price=100.00,
+            lowest_price=90.00,
+            highest_price=100.00,
+            target_price=70.00,
+            alert_enabled=True,
+            first_tracked_at="2024-01-01",
+            last_checked_at="2024-01-15"
+        )
+        
+        data = product.to_dict()
+        
+        assert data["product_url"] == "https://example.com/product"
+        assert data["current_price"] == 100.00
+        # No drop when current == highest, returns 0.0
+        assert data["price_drop_percent"] == 0.0
 
 
 class TestPricePointDataclass:
