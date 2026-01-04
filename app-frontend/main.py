@@ -272,7 +272,7 @@ def create_navbar():
         with ui.row().classes('w-full max-w-6xl mx-auto px-6 py-3 items-center justify-between'):
             with ui.link('/', target='_self').classes('no-underline'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.html('<span class="text-2xl">💰</span>')
+                    ui.html('<span class="text-2xl">💰</span>', sanitize=False)
                     ui.label('NetPrice').classes('text-xl font-bold text-white tracking-tight')
             
             with ui.row().classes('items-center gap-4'):
@@ -304,7 +304,7 @@ def create_hero_search():
     """Create the hero search section."""
     with ui.element('div').classes('w-full hero-bg min-h-[70vh] flex items-center'):
         with ui.column().classes('w-full max-w-3xl mx-auto px-6 py-20 items-center'):
-            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">Your True Price</h1>')
+            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">Your True Price</h1>', sanitize=False)
             ui.label('Compare cashback across 5 platforms instantly').classes(
                 'text-xl text-gray-400 text-center mb-12'
             )
@@ -325,7 +325,7 @@ def create_hero_search():
             with ui.row().classes('mt-20 gap-12 flex-wrap justify-center'):
                 for icon, val, lbl in [('💵', '5', 'Cashback Sites'), ('💳', '50+', 'Cards Supported'), ('⚡', '<3s', 'Analysis Time')]:
                     with ui.column().classes('items-center'):
-                        ui.html(f'<span class="text-2xl">{icon}</span>')
+                        ui.html(f'<span class="text-2xl">{icon}</span>', sanitize=False)
                         ui.label(val).classes('text-xl font-bold text-white mt-2')
                         ui.label(lbl).classes('text-gray-500 text-sm')
             
@@ -361,8 +361,8 @@ def create_landing():
     """Create landing page for non-authenticated users."""
     with ui.element('div').classes('w-full hero-bg min-h-[85vh] flex items-center justify-center'):
         with ui.column().classes('items-center px-6'):
-            ui.html('<span class="text-6xl mb-6">💰</span>')
-            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">NetPrice Finder</h1>')
+            ui.html('<span class="text-6xl mb-6">💰</span>', sanitize=False)
+            ui.html('<h1 class="text-5xl md:text-6xl font-bold text-white text-center mb-4 glow tracking-tight">NetPrice Finder</h1>', sanitize=False)
             ui.label('Find the TRUE cheapest price after all savings').classes('text-xl text-gray-400 text-center mb-10 max-w-lg')
             
             with ui.row().classes('gap-4'):
