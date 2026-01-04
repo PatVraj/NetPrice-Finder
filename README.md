@@ -1,18 +1,24 @@
-# Sovereign Smart Intelligence Platform (SSIP)
+# Net Price Finder
 
-> **Zero-Cost, Data-Sovereign Financial Intelligence**
+> **Find the TRUE cheapest price after all savings stack**
 
-A local-first, event-driven microservices application that eliminates reliance on third-party financial aggregators by utilizing local GPU compute for AI inference and "headful" browser automation.
+Paste a product link → Get the real net price after:
+- 💵 **Cashback** (Rakuten, TopCashback, Honey, BeFrugal, Swagbucks)
+- 🏷️ **Coupons** (auto-discovered from RetailMeNot, vendor sites)
+- 💳 **Credit Card Rewards** (optional - only YOUR cards)
+
+A local-first, event-driven microservices application that eliminates reliance on third-party services by utilizing local GPU compute for AI inference and "headful" browser automation.
 
 ---
 
 ## 🎯 Overview
 
-SSIP provides:
-- **Financial Data Sovereignty** – All data stays on your hardware
+Net Price Finder provides:
+- **True Cost Calculation** – See the REAL price after all discounts stack
+- **Data Sovereignty** – All data stays on your hardware
 - **Zero Marginal Cost** – No recurring SaaS subscriptions
-- **High-Fidelity Automation** – GPU-accelerated browser automation with anti-bot evasion
-- **Intelligent Routing** – Local LLM-powered intent classification and document parsing
+- **Smart Card Optimization** – Recommends the best card from YOUR wallet (optional)
+- **Privacy First** – No browser extensions tracking your data
 
 ---
 
@@ -25,27 +31,55 @@ NetPrice-Finder/
 ├── app-frontend/                  # NiceGUI Dashboard
 │   ├── Dockerfile                 # Container configuration
 │   ├── requirements.txt           # Python dependencies
-│   └── main.py                    # Dashboard application
+│   └── main.py                    # Net Price Finder UI
 ├── scraper-engine/                # Playwright + Xvfb + GPU
 │   ├── Dockerfile                 # Container with GPU support
 │   ├── requirements.txt           # Python dependencies
 │   └── run_scraper.py             # Visual scraper with streaming
-├── intelligence-core/             # Ollama LLM wrapper
+├── intelligence-core/             # Core intelligence modules
+│   ├── api/
+│   │   ├── __init__.py            # Module exports
+│   │   └── server.py              # FastAPI endpoints
+│   ├── optimizer/
+│   │   ├── __init__.py            # Module exports
+│   │   └── net_price.py           # Net Price Optimizer
+│   ├── cashback/
+│   │   ├── __init__.py            # Module exports
+│   │   └── monitor.py             # Cashback platform scraper
+│   ├── retailer/                  # Retailer Intelligence System
+│   │   ├── __init__.py            # Module exports
+│   │   ├── models.py              # Data classes & retailer tiers
+│   │   ├── database.py            # SQLite persistence layer
+│   │   ├── cache.py               # Redis hot cache
+│   │   ├── strategy.py            # Stacking rules engine
+│   │   └── intelligence.py        # Main intelligence class
+│   ├── rewards/
+│   │   ├── __init__.py            # Module exports
+│   │   └── schema.py              # Credit card reward engine
+│   ├── vision/
+│   │   ├── __init__.py            # Module exports
+│   │   └── parser.py              # PDF/receipt parser
+│   ├── tests/                     # Pytest test suite
+│   │   ├── __init__.py            # Test package init
+│   │   ├── test_net_price.py      # Optimizer tests (25+)
+│   │   ├── test_rewards.py        # Card reward tests (20+)
+│   │   └── test_api.py            # API endpoint tests (25+)
 │   ├── prompts/
 │   │   └── router.yaml            # Tool definitions
 │   └── tools/
 │       └── router.py              # Semantic router
+├── docs/                          # Documentation
+│   ├── API.md                     # API endpoint documentation
+│   ├── FEATURES.md                # Features guide & architecture
+│   └── RETAILER_INTELLIGENCE_DESIGN.md  # Retailer caching system design
 ├── configs/                       # Service configurations
-│   └── .gitkeep
 ├── scripts/
 │   ├── start.sh                   # Linux/Mac quick start
 │   └── start.ps1                  # Windows quick start
 ├── docker-compose.yml             # Container orchestration
 ├── .env.example                   # Environment template
-├── .gitignore                     # Git ignore patterns
 ├── README.md                      # Project documentation
 ├── ROADMAP.md                     # Version tracking & changelog
-├── LICENSE                        # License file
 └── research.txt                   # Architectural specification
 ```
 
@@ -96,7 +130,7 @@ cd NetPrice-Finder
 cp .env.example .env
 
 # Build and start all services
-docker compose up -d
+docker compose up --build
 
 # Pull an LLM model
 docker compose exec intelligence-core ollama pull llama3.1:8b
@@ -130,9 +164,36 @@ open http://localhost:8080
 
 ## 📚 Documentation
 
+- [docs/API.md](docs/API.md) – API endpoint reference with examples
+- [docs/FEATURES.md](docs/FEATURES.md) – Feature guide & architecture overview
 - [ROADMAP.md](ROADMAP.md) – Version history & planned features
 - [research.txt](research.txt) – Full architectural specification
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) – Development workflow
+
+---
+
+## 🧪 Running Tests
+
+Tests are designed to run inside Docker containers:
+
+```bash
+# Enter the intelligence-core container
+docker compose exec intelligence-core bash
+
+# Install test dependencies
+pip install pytest pytest-asyncio httpx
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_net_price.py -v
+```
+
+**Test Coverage:**
+- `test_net_price.py` – 25+ tests for the Net Price Optimizer
+- `test_rewards.py` – 20+ tests for credit card reward system
+- `test_api.py` – 25+ tests for all API endpoints
 
 ---
 

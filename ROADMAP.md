@@ -161,18 +161,204 @@
 ---
 
 ### Phase 4: "Sovereign" Features 👑
-**Target:** Days 15+ | **Status:** ⬜ Not Started
+**Target:** v0.5.0 | **Status:** ✅ Complete
 
 | Task | Status | Priority |
 |------|--------|----------|
-| Implement Vision Parser for PDF statements | ⬜ | 🔴 Critical |
-| Build MCC enrichment pipeline | ⬜ | 🟡 Medium |
-| Create Credit Card Reward Schema system | ⬜ | 🟡 Medium |
-| Build Coupon Auto-Applier logic | ⬜ | 🟢 Low |
-| Implement Cashback Monitor scraper | ⬜ | 🟡 Medium |
-| Add "Missed Opportunity" reporting | ⬜ | 🟢 Low |
+| Implement Vision Parser for PDF statements | ✅ | 🔴 Critical |
+| Build MCC enrichment pipeline | ✅ | 🟡 Medium |
+| Create Credit Card Reward Schema system | ✅ | 🟡 Medium |
+| Build Net Price Optimizer | ✅ | 🔴 Critical |
+| Implement Cashback Monitor scraper | ✅ | 🟡 Medium |
+| Clarify credit card rewards are OPTIONAL | ✅ | 🟡 Medium |
 
-**Milestone:** Full sovereign financial intelligence operational
+**Milestone:** ✅ Full sovereign financial intelligence operational
+
+---
+
+### Phase 5: Frontend Integration 🖥️
+**Target:** v0.6.0 | **Status:** ✅ Complete
+
+| Task | Status | Priority |
+|------|--------|----------|
+| Create FastAPI server for optimizer | ✅ | 🔴 Critical |
+| Build price optimization endpoints | ✅ | 🔴 Critical |
+| Create card wallet management API | ✅ | 🟡 Medium |
+| Redesign NiceGUI frontend | ✅ | 🔴 Critical |
+| Implement search hero component | ✅ | 🟡 Medium |
+| Build results display page | ✅ | 🔴 Critical |
+| Create card wallet management UI | ✅ | 🟡 Medium |
+| Add quick calculator widget | ✅ | 🟢 Low |
+
+**Milestone:** ✅ User can paste a link and see net price breakdown
+
+---
+
+### Phase 6: Testing & Documentation 📚
+**Target:** v0.6.0 | **Status:** ✅ Complete
+
+| Task | Status | Priority |
+|------|--------|----------|
+| Create pytest test suite for optimizer | ✅ | 🔴 Critical |
+| Create tests for credit card rewards | ✅ | 🔴 Critical |
+| Create tests for API endpoints | ✅ | 🔴 Critical |
+| Write comprehensive API documentation | ✅ | 🟡 Medium |
+| Write features/user guide documentation | ✅ | 🟡 Medium |
+| Verify tests run in Docker containers | ✅ | 🟡 Medium |
+
+**Milestone:** ✅ 70+ test cases and full API/features documentation
+
+---
+
+### Branch: `feature/phase4-sovereign-features`
+**Created:** 2026-01-04  
+**Merged:** Open  
+**Purpose:** Net Price Finder - find TRUE cheapest price after all savings stack
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `85d51e7` | 2026-01-04 | 8 files | Fix false positive cashback + auto tax detection |
+| `bbf7279` | 2026-01-04 | 3 files | Vision Parser for PDFs + MCC enrichment |
+| `8e5c8d6` | 2026-01-04 | 4 files | Credit Card Reward Schema + Cashback Monitor |
+| `43c97c2` | 2026-01-04 | 4 files | Net Price Optimizer - core intelligence |
+| `19d8ff0` | 2026-01-04 | 1 file | Clarify credit card rewards are optional |
+| `642c106` | 2026-01-04 | 1 file | Update roadmap with Phase 4 details |
+| `866c0d2` | 2026-01-03 | 3 files | Frontend integration with Net Price Optimizer |
+| `4ade820` | 2026-01-03 | 6 files | Comprehensive test suite and API documentation |
+
+#### Files Created (Phase 4):
+- `intelligence-core/vision/parser.py` – PDF/receipt parsing with LLaVA
+- `intelligence-core/vision/__init__.py` – Module exports
+- `intelligence-core/rewards/schema.py` – Credit card reward optimization
+- `intelligence-core/rewards/__init__.py` – Module exports
+- `intelligence-core/cashback/monitor.py` – Multi-platform cashback scraping
+- `intelligence-core/cashback/__init__.py` – Module exports
+- `intelligence-core/optimizer/net_price.py` – Net Price Optimizer (core)
+- `intelligence-core/optimizer/__init__.py` – Module exports
+- `intelligence-core/tax/location.py` – Auto tax detection via IP geolocation
+- `intelligence-core/tax/__init__.py` – Module exports
+
+#### Files Created (Phase 5 - Frontend Integration):
+- `intelligence-core/api/server.py` – FastAPI server for optimizer endpoints
+- `intelligence-core/api/__init__.py` – Module exports
+
+#### Files Modified (Phase 5):
+- `app-frontend/main.py` – Complete rewrite with Net Price Finder UI
+- `intelligence-core/optimizer/__init__.py` – Module exports
+
+#### Files Created (Phase 6 - Testing & Documentation):
+- `intelligence-core/tests/__init__.py` – Test suite initialization
+- `intelligence-core/tests/test_net_price.py` – 25+ test cases for optimizer
+- `intelligence-core/tests/test_rewards.py` – 20+ test cases for card rewards
+- `intelligence-core/tests/test_api.py` – 25+ test cases for API endpoints
+- `docs/API.md` – Comprehensive API endpoint documentation
+- `docs/FEATURES.md` – User guide and architecture documentation
+
+#### Key Design Decisions:
+1. **Credit card rewards are OPTIONAL** – Only user's actual cards are used
+2. **Cashback stacking** – Compares 5 platforms: Rakuten, Honey, TopCashback, BeFrugal, Swagbucks
+3. **Coupon finding** – Scrapes coupons from RetailMeNot, Honey, vendor sites
+4. **Net price calculation** – Product - Coupon + Tax - Cashback - Card Rewards = TRUE cost
+
+#### Session: 2026-01-04 – Cashback Verification & Tax Detection
+
+**Issues Fixed:**
+- 🐛 TopCashback scraper returning false positives (2% for non-existent merchants)
+- 🐛 Hardcoded cashback rates removed in favor of live scraping
+- ✨ Added auto tax detection based on user's IP location
+
+**Changes Made:**
+1. **TopCashback Scraper Rewrite:**
+   - Uses search API (`/ajax/merchant/search`) for reliable data
+   - Added `_is_merchant_match()` to verify merchant name matches
+   - Added `_is_valid_merchant_page()` to detect 404/error pages
+   - Confidence scores: 0.95 (API) vs 0.85 (page scrape)
+   - Removed browser fallback that caused false positives
+
+2. **Auto Tax Detection:**
+   - Created `intelligence-core/tax/location.py` with `TaxCalculator`
+   - IP geolocation via ip-api.com (free, no API key)
+   - Complete US state sales tax database (50 states + DC)
+   - 24-hour location caching to reduce API calls
+   - Returns location-aware tax rate in API response
+
+3. **Frontend Updates:**
+   - Added `product_name` display from LLM extraction
+   - Shows tax as "Tax (California) @ 8.85%"
+   - Improved progress feedback during optimization
+
+**Files Modified:**
+- `intelligence-core/cashback/monitor.py` – Rewrote TopCashback scraper
+- `intelligence-core/api/server.py` – Added tax detection to API
+- `app-frontend/main.py` – Added tax location display
+
+---
+
+#### Session: 2026-01-04 – Retailer Intelligence System
+
+**Commit:** `1290131`  
+**Feature:** Persistent caching system for major retailers with intelligent savings strategies
+
+**Design Document:** `docs/RETAILER_INTELLIGENCE_DESIGN.md`
+
+**Problem Solved:**
+- 🐛 Re-scraping cashback rates every search was inefficient
+- 🐛 No persistent storage for promo codes with context
+- 🐛 Only keeping "best" offer lost stacking opportunities (e.g., PayPal + CC combo)
+- ✨ Added intelligent strategy calculation with stacking rules
+
+**Architecture Decisions:**
+1. **Hybrid Storage:** Redis (hot cache) + SQLite (persistent)
+   - Redis: Fast lookups with tier-based TTL (4h/12h/24h)
+   - SQLite: Long-term storage, avoids coupling with Firefly III's MariaDB
+2. **Tier System:** Major retailers (60+) get priority refresh
+3. **Store ALL Offers:** Keep every cashback/promo for intelligent decision-making
+4. **Stacking Rules:** Defined which savings sources can combine
+
+**Files Created:**
+| File | Description |
+|------|-------------|
+| `docs/RETAILER_INTELLIGENCE_DESIGN.md` | Full architecture specification |
+| `intelligence-core/retailer/__init__.py` | Module exports |
+| `intelligence-core/retailer/models.py` | Data classes (Retailer, StoredCashbackOffer, StoredPromoCode, PaymentBonus, SavingsStrategy, etc.) |
+| `intelligence-core/retailer/database.py` | SQLite persistence layer with full CRUD |
+| `intelligence-core/retailer/cache.py` | Redis hot cache with TTL management |
+| `intelligence-core/retailer/strategy.py` | Stacking rules and strategy calculation |
+| `intelligence-core/retailer/intelligence.py` | Main RetailerIntelligence class |
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/monitor.py` | Added optional `intelligence` parameter |
+| `intelligence-core/optimizer/net_price.py` | Added optional `intelligence` parameter |
+| `intelligence-core/api/server.py` | Added 5 new endpoints for retailer intelligence |
+| `docker-compose.yml` | Added `RETAILER_DB_PATH` env var and `intelligence_data` volume |
+
+**New API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/retailer/{name}/deals` | GET | Get all cached deals for a retailer |
+| `/retailer/{name}/strategy` | GET | Calculate optimal savings strategy |
+| `/retailer/{name}/refresh` | POST | Force refresh retailer data |
+| `/intelligence/stats` | GET | Get cache and database statistics |
+| `/intelligence/stale` | GET | List retailers needing refresh |
+
+**Key Classes:**
+- `RetailerIntelligence` – Main unified interface
+- `RetailerDatabase` – SQLite operations
+- `RetailerCache` – Redis caching
+- `StrategyCalculator` – Stacking rules engine
+
+**Stacking Rules Example:**
+```python
+# Conflicts (can't stack)
+Rakuten ↔ TopCashback ↔ Honey Gold ↔ BeFrugal ↔ Swagbucks
+
+# Can Stack
+Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
+```
 
 ---
 
@@ -252,5 +438,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-03</em>
+  <em>Last updated: 2026-01-04 (Retailer Intelligence System)</em>
 </p>

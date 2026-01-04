@@ -22,6 +22,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - API_URL=http://api-server:8000
       - FIREFLY_API_URL=http://firefly-iii:8080
       - FIREFLY_API_TOKEN=${FIREFLY_API_TOKEN:-}
       - OLLAMA_API_URL=http://intelligence-core:11434
@@ -113,6 +114,40 @@ services:
       retries: 5
 
   # ===========================================================================
+  # 3b. API SERVER - FastAPI Net Price Optimizer
+  # ===========================================================================
+  api-server:
+    build:
+      context: ./intelligence-core
+      dockerfile: Dockerfile
+    container_name: ssip-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_HOST=http://intelligence-core:11434
+      - SCRAPER_HOST=http://scraper-engine:5000
+      - RETAILER_DB_PATH=/app/data/retailers.db
+    volumes:
+      - ./intelligence-core:/app
+      - intelligence_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      scraper-engine:
+        condition: service_started
+    networks:
+      - ssip-internal
+      - ssip-public
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
   # 4. FINANCIAL LEDGER - Firefly III
   # ===========================================================================
   firefly-iii:
@@ -201,3 +236,4 @@ volumes:
   firefly_upload:
   mariadb_data:
   redis_data:
+  intelligence_data:  # Persistent storage for retailer intelligence (SQLite)

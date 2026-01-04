@@ -27,3 +27,7 @@ python-dateutil>=2.9.0
 
 # Logging
 structlog>=24.4.0
+
+# Vision Parser (PDF support)
+pdf2image>=1.17.0
+Pillow>=10.0.0

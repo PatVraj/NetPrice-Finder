@@ -87,6 +87,8 @@ Write-Host "=================================================" -ForegroundColor 
 Write-Host "🎉 SSIP is starting up!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Access the dashboard at: http://localhost:8080" -ForegroundColor White
+Write-Host "API Server at: http://localhost:8000" -ForegroundColor White
+Write-Host "API Docs at: http://localhost:8000/docs" -ForegroundColor White
 Write-Host "Firefly III at: http://localhost:8081" -ForegroundColor White
 Write-Host "Ollama API at: http://localhost:11434" -ForegroundColor White
 Write-Host ""
