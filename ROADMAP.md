@@ -371,19 +371,21 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
-| `4ca4219` | 2026-01-05 | 2 files | Fix cashback offers transparency in UI |
-| `33fa32e` | 2026-01-05 | 2 files | Fix false positive matching in scrapers |
-| `0697291` | 2026-01-05 | 2 files | Add search page scraping strategy |
-| `c40a561` | 2026-01-05 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
-| `1d78394` | 2026-01-05 | 6 files | Modularize cashback scrapers into package |
+| `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
+| `4ca4219` | 2026-01-03 | 2 files | Fix cashback offers transparency in UI |
+| `33fa32e` | 2026-01-03 | 2 files | Fix false positive matching in scrapers |
+| `0697291` | 2026-01-03 | 2 files | Add search page scraping strategy |
+| `c40a561` | 2026-01-03 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
+| `1d78394` | 2026-01-03 | 6 files | Modularize cashback scrapers into package |
 
-#### Session: 2026-01-05 – Cashback Scraper Overhaul
+#### Session: 2026-01-03 – Cashback Scraper Overhaul
 
 **Issues Fixed:**
 - 🐛 Pandora cashback not found (wrong URL slugs)
 - 🐛 API endpoints returning 404 for valid merchants
 - 🐛 False positive: FineJewelers 5% attributed to Pandora
 - 🐛 Rakuten 4% found in logs but UI showed "Not available"
+- ✨ Added descriptive logging for real-time backend progress
 
 **Root Causes & Solutions:**
 
@@ -402,6 +404,12 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
    - Added `_found_cashback_offers` list to optimizer
    - Added `all_cashback_offers` field to `OptimizationResult`
    - Server uses actual scraper results instead of guessing
+
+5. **Descriptive Logging:** Real-time progress updates:
+   - `[SCRAPING]` logs when platforms are queued and searched
+   - `[CASHBACK]` logs with ✓/✗ for found/not found
+   - `[OPTIMIZER]` logs for product extraction and savings calculation
+   - `[SUMMARY]` block at end with full breakdown
 
 **Files Modified:**
 | File | Changes |
