@@ -644,8 +644,8 @@ async def main_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         if is_authenticated():
             create_hero_search()
         else:
@@ -657,8 +657,8 @@ async def results_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_results()
         create_footer()
 
@@ -667,8 +667,8 @@ async def login_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_login()
         create_footer()
 
@@ -677,8 +677,8 @@ async def register_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_register()
         create_footer()
 
@@ -687,8 +687,8 @@ async def admin_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_admin()
         create_footer()
 
@@ -697,8 +697,8 @@ async def cards_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_cards()
         create_footer()
 
@@ -707,8 +707,8 @@ async def settings_page():
     ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    with ui.column().classes('w-full min-h-screen bg-gray-900'):
-        create_navbar()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
         create_settings()
         create_footer()
 
