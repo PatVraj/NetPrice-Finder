@@ -8,10 +8,10 @@
 
 ## 📌 Current Version: `v0.7.0` – Data Persistence & User Experience
 
-**Status:** 🔄 In Progress  
+**Status:** ✅ Complete  
 **Started:** 2026-01-03  
-**Target Completion:** 2026-01-07  
-**Last Updated:** 2026-01-03
+**Completed:** 2026-01-04  
+**Last Updated:** 2026-01-04
 
 ---
 
@@ -20,9 +20,9 @@
 ---
 
 ## 🏷️ v0.7.0 – Data Persistence & User Experience
-**Status:** 🔄 In Progress  
+**Status:** ✅ Complete  
 **Started:** 2026-01-03  
-**Target Completion:** 2026-01-07
+**Completed:** 2026-01-04
 
 ### Branch: `feature/data-persistence`
 **Created:** 2026-01-03  
@@ -132,6 +132,75 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 3. **CashbackMonitor helpers:** Extracted `_get_from_intelligence_cache()`, `_scrape_all_platforms()`, `_convert_stored_offer()`
 4. **find_best_cashback:** Reduced complexity from 100+ lines to ~25 lines using helpers
 
+---
+
+### Branch: `feature/price-tracking`
+**Created:** 2026-01-04  
+**Merged:** Open  
+**Purpose:** Implement price tracking over time with history visualization
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `60808fc` | 2026-01-04 | 3 files | Price tracking over time feature |
+
+#### Session: 2026-01-04 – Price Tracking Implementation
+
+**Files Modified:**
+- `app-frontend/database.py` – TrackedProduct/PricePoint dataclasses, 2 new tables, 8 tracking methods
+- `app-frontend/main.py` – Price history UI in results, dedicated /tracking page, navbar links
+- `app-frontend/tests/test_database.py` – 20+ tests for price tracking functionality
+
+**Key Features Implemented:**
+1. **Price History Schema:** TrackedProduct and PricePoint dataclasses for time-series data
+2. **Database Tables:** `tracked_products` and `price_history` with proper indexes
+3. **Automatic Tracking:** Products are tracked on each search with URL as unique key
+4. **Price History Display:** Results page shows lowest/current/highest with drop percentage
+5. **Dedicated Tracking Page:** `/tracking` route shows all tracked products with stats
+6. **Alert Settings:** Target price and alert_enabled fields for future notifications
+7. **Navigation:** "Tracking" link added to navbar (desktop and mobile menu)
+
+**Database Schema (New):**
+```sql
+tracked_products (id, user_id, product_url, product_name, retailer, 
+                  current_price, lowest_price, highest_price, target_price,
+                  alert_enabled, first_tracked_at, last_checked_at)
+price_history (id, product_id, price, net_price, best_cashback_rate, recorded_at)
+```
+
+**Price Tracking API Methods:**
+- `track_product()` – Start/update tracking a product
+- `get_tracked_product()` – Get single product with history
+- `get_user_tracked_products()` – List all tracked products for user
+- `get_product_price_history()` – Get price history for product
+- `update_product_alert()` – Set target price and enable alerts
+- `untrack_product()` – Stop tracking a product
+- `get_products_with_price_drops()` – Get products below target price
+- `get_price_tracking_stats()` – Aggregate stats for user
+
+**UI Features:**
+- Price history expansion in results page with lowest/current/highest stats
+- Price drop percentage indicator ("↓ 15% below highest price")
+- "Currently at lowest tracked price!" indicator with fire icon
+- Recent prices list (last 5 observations with dates)
+- Stats cards: Products Tracked, At Lowest Price, With Alerts
+
+**Test Coverage Added:**
+- `test_track_product_new` – Track a new product
+- `test_track_product_price_update` – Price changes update history and bounds
+- `test_get_tracked_product` / `test_get_tracked_product_not_found`
+- `test_get_user_tracked_products` – List all tracked products
+- `test_get_product_price_history` – Get price history
+- `test_update_product_alert` – Set alert settings
+- `test_untrack_product` – Stop tracking
+- `test_get_products_with_price_drops` – Products below target
+- `test_get_price_tracking_stats` – Aggregate statistics
+- `TestTrackedProductDataclass` – `_calculate_drop_percent()`, `to_dict()`
+- `TestPricePointDataclass` – `to_dict()` serialization
+
+---
+
 #### Tasks Progress:
 
 | Task | Status | Priority |
@@ -139,7 +208,7 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 | SQLite database for user accounts | ✅ | 🔴 Critical |
 | Persist card wallet per user | ✅ | 🔴 Critical |
 | Search history storage | ✅ | 🟡 Medium |
-| Price tracking over time | ⬜ | 🟡 Medium |
+| Price tracking over time | ✅ | 🟡 Medium |
 | Integrate RetailerIntelligence with frontend | ✅ | 🟡 Medium |
 | User settings persistence (tax rate, location) | ✅ | 🟢 Low |
 
