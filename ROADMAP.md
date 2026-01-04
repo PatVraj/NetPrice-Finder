@@ -34,6 +34,7 @@
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
 | `5592a8d` | 2026-01-03 | 7 files | SQLite user database with full persistence |
+| `dffddff` | 2026-01-03 | 4 files | RetailerIntelligence integration for cashback caching |
 
 #### Session: 2026-01-03 – Data Persistence Implementation
 
@@ -70,6 +71,32 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 - Search history tracking (6 tests)
 - Data persistence across reconnects (2 tests)
 
+#### Session: 2026-01-03 – RetailerIntelligence Integration
+
+**Files Modified:**
+- `intelligence-core/cashback/monitor.py` – Cache-first lookup via RetailerIntelligence, stores results after scraping
+- `intelligence-core/optimizer/net_price.py` – Passes cache metadata through optimization result
+- `intelligence-core/api/server.py` – API response includes cache status (from_cache, last_updated)
+- `app-frontend/main.py` – UI shows "Rates updated X hours ago" in Cashback Comparison section
+
+**Key Features Implemented:**
+1. **Cache-First Lookup:** CashbackMonitor checks RetailerIntelligence SQLite/Redis cache before scraping
+2. **Persistent Storage:** Fresh scrape results stored to SQLite database and warmed in Redis
+3. **Cache Metadata:** API response includes `cashback_from_cache` and `cashback_last_updated` fields
+4. **UI Transparency:** Users see when cashback rates were last updated (fresh vs cached)
+5. **Tier-Based TTL:** Major retailers (Amazon, Target) = 4h, standard = 12h, minor = 24h
+
+**Integration Flow:**
+```
+1. User searches for product
+2. CashbackMonitor.find_best_cashback() called
+3. Check RetailerIntelligence cache (Redis → SQLite)
+4. If fresh: return cached data with metadata
+5. If stale/missing: scrape all 5 platforms
+6. Store results to SQLite and warm Redis
+7. Return with cache_from=false, last_updated="Just scraped"
+```
+
 #### Tasks Progress:
 
 | Task | Status | Priority |
@@ -78,7 +105,7 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 | Persist card wallet per user | ✅ | 🔴 Critical |
 | Search history storage | ✅ | 🟡 Medium |
 | Price tracking over time | ⬜ | 🟡 Medium |
-| Integrate RetailerIntelligence with frontend | ⬜ | 🟡 Medium |
+| Integrate RetailerIntelligence with frontend | ✅ | 🟡 Medium |
 | User settings persistence (tax rate, location) | ✅ | 🟢 Low |
 
 **Milestone:** User data persists across container restarts
