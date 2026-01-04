@@ -677,7 +677,7 @@ def create_register():
 
 async def create_admin():
     """Create admin dashboard with real data from SQLite."""
-    if not is_admin():
+    if not is_admin() or not state.db:
         ui.navigate.to('/')
         return
     
@@ -769,8 +769,8 @@ async def create_admin():
 
 def create_cards():
     """Create cards page with database persistence."""
-    # Redirect if not authenticated
-    if not is_authenticated():
+    # Redirect if not authenticated or database unavailable
+    if not is_authenticated() or not state.db:
         ui.navigate.to('/login')
         return
     
@@ -856,8 +856,8 @@ def create_cards():
 
 def create_settings():
     """Create settings page with database persistence."""
-    # Redirect if not authenticated
-    if not is_authenticated():
+    # Redirect if not authenticated or database unavailable
+    if not is_authenticated() or not state.db:
         ui.navigate.to('/login')
         return
     
@@ -886,9 +886,15 @@ def create_settings():
     
     def on_tax_change(e):
         try:
-            tax_rate = float(e.value) if e.value else None
-            state.db.update_user_settings(user.id, tax_rate=tax_rate)
-            ui.notify(f'Tax rate saved', type='positive')
+            if e.value and e.value.strip():
+                # User entered a value - update tax rate
+                tax_rate = float(e.value)
+                state.db.update_user_settings(user.id, tax_rate=tax_rate)
+                ui.notify('Tax rate saved', type='positive')
+            else:
+                # User cleared the field - reset to auto-detection
+                state.db.update_user_settings(user.id, clear_tax_rate=True)
+                ui.notify('Tax rate cleared (using auto-detection)', type='positive')
         except ValueError:
             ui.notify('Invalid tax rate', type='warning')
     

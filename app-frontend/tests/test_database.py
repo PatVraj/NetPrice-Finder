@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import (
     UserDatabase,
     User, UserCard, SearchHistory,
-    hash_password, verify_password
+    hash_password, verify_password,
+    get_user_database,
 )
 
 
@@ -64,11 +65,51 @@ class TestPasswordHashing:
         hashed = hash_password("correct")
         assert verify_password("wrong", hashed) is False
     
-    def test_verify_demo_password(self):
-        """Demo passwords should verify correctly."""
+    def test_verify_demo_password_with_demo_mode(self, monkeypatch):
+        """Demo passwords should verify only when DEMO_MODE is enabled."""
+        import database as db_module
+        
+        # Enable DEMO_MODE
+        monkeypatch.setattr(db_module, 'DEMO_MODE', True)
+        
         demo_hash = "$demo$admin123"
         assert verify_password("admin123", demo_hash) is True
         assert verify_password("wrong", demo_hash) is False
+    
+    def test_verify_demo_password_without_demo_mode(self, monkeypatch):
+        """Demo passwords should fail when DEMO_MODE is disabled."""
+        import database as db_module
+        
+        # Disable DEMO_MODE (production mode)
+        monkeypatch.setattr(db_module, 'DEMO_MODE', False)
+        
+        demo_hash = "$demo$admin123"
+        # Even correct password should fail when not in demo mode
+        assert verify_password("admin123", demo_hash) is False
+    
+    def test_verify_password_malformed_sha256_hash(self):
+        """Malformed SHA256 hash should fail safely."""
+        # Missing parts
+        assert verify_password("test", "$sha256$") is False
+        assert verify_password("test", "$sha256$salt") is False
+        assert verify_password("test", "$sha256$$") is False
+        assert verify_password("test", "$sha256$salt$") is False
+        assert verify_password("test", "") is False
+        assert verify_password("test", None) is False  # None input
+    
+    def test_verify_password_malformed_bcrypt_hash(self):
+        """Malformed bcrypt hash should fail safely."""
+        # Too short
+        assert verify_password("test", "$2a$") is False
+        assert verify_password("test", "$2b$12$short") is False
+        # Corrupted
+        assert verify_password("test", "$2a$12$invalid!!characters!!here") is False
+    
+    def test_verify_password_unknown_format(self):
+        """Unknown hash format should fail safely."""
+        assert verify_password("test", "$unknown$format$hash") is False
+        assert verify_password("test", "plaintext") is False
+        assert verify_password("test", "12345") is False
 
 
 class TestUserManagement:
@@ -341,6 +382,24 @@ class TestSearchHistory:
         assert stats["total_searches"] == 3
         assert stats["total_saved"] == 80
         assert stats["best_savings"] == 50
+    
+    def test_get_user_savings_stats_empty_history(self, db):
+        """Stats for user with no history should return zeros safely."""
+        user = db.create_user("empty_stats@example.com", "pass")
+        
+        # No search history added - should return safe defaults
+        stats = db.get_user_savings_stats(user.id)
+        assert stats["total_searches"] == 0
+        assert stats["total_saved"] == 0.0
+        assert stats["best_savings"] == 0.0
+    
+    def test_get_user_savings_stats_nonexistent_user(self, db):
+        """Stats for non-existent user should return zeros safely."""
+        # User ID 9999 doesn't exist
+        stats = db.get_user_savings_stats(9999)
+        assert stats["total_searches"] == 0
+        assert stats["total_saved"] == 0.0
+        assert stats["best_savings"] == 0.0
 
 
 class TestDatabasePersistence:
@@ -389,6 +448,55 @@ class TestDatabasePersistence:
             assert len(cards) == 2
         finally:
             os.unlink(db_path)
+
+
+class TestSingleton:
+    """Test singleton behavior of get_user_database."""
+    
+    def test_get_user_database_singleton_returns_same_instance(self, monkeypatch):
+        """Singleton should return the same instance on repeated calls."""
+        import database as db_module
+        
+        # Reset singleton for clean test
+        monkeypatch.setattr(db_module, '_db_instance', None)
+        
+        # Use temp file for test
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        
+        try:
+            monkeypatch.setenv("USER_DB_PATH", db_path)
+            # Force re-evaluation of default path
+            monkeypatch.setattr(db_module, 'DEFAULT_DB_PATH', db_path)
+            
+            db1 = get_user_database()
+            db2 = get_user_database()
+            
+            assert db1 is db2, "Singleton should return the same instance"
+        finally:
+            os.unlink(db_path)
+    
+    def test_get_user_database_uses_env_path(self, monkeypatch):
+        """Singleton should use USER_DB_PATH environment variable."""
+        import database as db_module
+        
+        # Reset singleton for clean test
+        monkeypatch.setattr(db_module, '_db_instance', None)
+        
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            custom_path = f.name
+        
+        try:
+            # Set custom path via environment variable
+            monkeypatch.setenv("USER_DB_PATH", custom_path)
+            
+            db = UserDatabase()  # Uses env var
+            assert db.db_path == custom_path
+            
+            # Verify it actually creates the database at that path
+            assert os.path.exists(custom_path)
+        finally:
+            os.unlink(custom_path)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,35 @@
+classDiagram
+    class PriceResult {
+        +float cashback_percent
+        +float cashback_value
+        +list~dict~ all_cashback_rates
+        +bool cashback_from_cache
+        +str cashback_last_updated
+        +str card_name
+        +float card_reward_percent
+        +float card_reward_value
+    }
+
+    class AppState {
+        +redis.Redis redis_client
+        +PriceResult current_result
+        +UserDatabase db
+    }
+
+    class MainUI {
+        +init_database()
+        +get_current_user()
+        +get_current_user_id()
+        +bool is_authenticated()
+        +create_navbar()
+        +create_cards()
+        +create_settings()
+        +async search()
+        +async login()
+        +async register()
+    }
+
+    AppState --> PriceResult : holds
+    AppState --> UserDatabase : db
+    MainUI --> AppState : uses
+    MainUI --> UserDatabase : via_state_db

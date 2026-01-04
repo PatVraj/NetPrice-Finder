@@ -1,0 +1,22 @@
+sequenceDiagram
+    actor User
+    participant Frontend as AppFrontend
+    participant DB as UserDatabase
+
+    User->>Frontend: Open /login and submit email, password
+    Frontend->>DB: authenticate_user(email, password)
+    DB->>DB: get_user_by_email(email)
+    alt user found
+        DB-->>DB: verify_password(password, password_hash)
+        alt password valid
+            DB-->>Frontend: User(id, email, is_admin,...)
+            Frontend-->>Frontend: set app.storage.user fields
+            Frontend-->>User: Redirect to home, show success
+        else password invalid
+            DB-->>Frontend: None
+            Frontend-->>User: Show error notification
+        end
+    else user not found
+        DB-->>Frontend: None
+        Frontend-->>User: Show error notification
+    end

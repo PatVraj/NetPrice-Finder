@@ -126,6 +126,11 @@ class MerchantCashback:
         self.offers.append(offer)
         self._update_best()
     
+    def set_cache_metadata(self, from_cache: bool, age_seconds: float = 0.0):
+        """Set cache metadata for this result."""
+        self._from_cache = from_cache
+        self._cache_age_seconds = age_seconds
+    
     @property
     def from_cache(self) -> bool:
         """Whether this result came from cache."""
@@ -313,6 +318,88 @@ class CashbackMonitor:
             key = merchant.lower().strip()
             self._cache[key] = (result, datetime.now())
     
+    def _convert_stored_offer(self, stored_offer, merchant: str) -> CashbackOffer:
+        """Convert a StoredCashbackOffer to a CashbackOffer."""
+        try:
+            platform = CashbackPlatform(stored_offer.platform.lower())
+        except ValueError:
+            platform = CashbackPlatform.RAKUTEN  # fallback
+        
+        return CashbackOffer(
+            platform=platform,
+            merchant=merchant,
+            cashback_percent=stored_offer.cashback_percent,
+            cashback_fixed=stored_offer.cashback_fixed,
+            cashback_text=stored_offer.cashback_text or f"{stored_offer.cashback_percent}% Cash Back",
+            category=stored_offer.category,
+            is_elevated=stored_offer.is_elevated,
+            terms=stored_offer.terms,
+            affiliate_url=stored_offer.affiliate_url,
+            confidence=stored_offer.confidence or 1.0,
+        )
+    
+    async def _get_from_intelligence_cache(self, merchant: str) -> Optional[MerchantCashback]:
+        """Try to get cashback data from RetailerIntelligence cache (Redis/SQLite)."""
+        if not self.intelligence:
+            return None
+        
+        try:
+            deals = await self.intelligence.get_deals(merchant, force_refresh=False)
+            if not deals or not deals.cashback_offers:
+                return None
+            
+            # Convert RetailerDeals to MerchantCashback
+            merchant_cashback = MerchantCashback(
+                merchant=merchant,
+                checked_at=deals.last_scraped_at.isoformat() if deals.last_scraped_at else datetime.now().isoformat(),
+            )
+            
+            # Track cache metadata using helper
+            cache_age = (
+                (datetime.now() - deals.last_scraped_at).total_seconds()
+                if deals.last_scraped_at else 0
+            )
+            merchant_cashback.set_cache_metadata(from_cache=True, age_seconds=cache_age)
+            
+            for stored_offer in deals.cashback_offers:
+                offer = self._convert_stored_offer(stored_offer, merchant)
+                merchant_cashback.add_offer(offer)
+            
+            logger.info(f"[CACHE HIT] {merchant}: {len(deals.cashback_offers)} offers (age: {cache_age:.0f}s)")
+            return merchant_cashback
+            
+        except Exception as e:
+            logger.warning(f"[CACHE] RetailerIntelligence lookup failed for {merchant}: {e}")
+            return None
+    
+    async def _scrape_all_platforms(
+        self, merchant: str, platforms_to_check: list[CashbackPlatform]
+    ) -> MerchantCashback:
+        """Scrape all platforms and aggregate results."""
+        client = await self._get_client()
+        
+        # Query all platforms in parallel
+        tasks = []
+        for platform in platforms_to_check:
+            scraper = self._scrapers.get(platform)
+            if scraper:
+                tasks.append(self._safe_scrape(scraper, merchant, client, platform))
+        
+        results = await asyncio.gather(*tasks)
+        
+        # Aggregate results
+        merchant_cashback = MerchantCashback(
+            merchant=merchant,
+            checked_at=datetime.now().isoformat(),
+        )
+        merchant_cashback.set_cache_metadata(from_cache=False, age_seconds=0)
+        
+        for offers in results:
+            for offer in offers:
+                merchant_cashback.add_offer(offer)
+        
+        return merchant_cashback
+    
     async def find_best_cashback(
         self,
         merchant: str,
@@ -334,82 +421,22 @@ class CashbackMonitor:
             MerchantCashback with all offers and best offer highlighted
         """
         # 1. Try RetailerIntelligence cache first (persistent SQLite/Redis)
-        if self.intelligence and not force_refresh:
-            try:
-                deals = await self.intelligence.get_deals(merchant, force_refresh=False)
-                if deals and deals.cashback_offers:
-                    # Convert RetailerDeals to MerchantCashback
-                    merchant_cashback = MerchantCashback(
-                        merchant=merchant,
-                        checked_at=deals.last_scraped_at.isoformat() if deals.last_scraped_at else datetime.now().isoformat(),
-                    )
-                    
-                    # Track cache metadata
-                    merchant_cashback._from_cache = True
-                    merchant_cashback._cache_age_seconds = (
-                        (datetime.now() - deals.last_scraped_at).total_seconds()
-                        if deals.last_scraped_at else 0
-                    )
-                    
-                    for stored_offer in deals.cashback_offers:
-                        # Convert StoredCashbackOffer to CashbackOffer
-                        try:
-                            platform = CashbackPlatform(stored_offer.platform.lower())
-                        except ValueError:
-                            platform = CashbackPlatform.RAKUTEN  # fallback
-                        
-                        offer = CashbackOffer(
-                            platform=platform,
-                            merchant=merchant,
-                            cashback_percent=stored_offer.cashback_percent,
-                            cashback_fixed=stored_offer.cashback_fixed,
-                            cashback_text=stored_offer.cashback_text or f"{stored_offer.cashback_percent}% Cash Back",
-                            category=stored_offer.category,
-                            is_elevated=stored_offer.is_elevated,
-                            terms=stored_offer.terms,
-                            affiliate_url=stored_offer.affiliate_url,
-                            confidence=stored_offer.confidence or 1.0,
-                        )
-                        merchant_cashback.add_offer(offer)
-                    
-                    logger.info(f"[CACHE HIT] {merchant}: {len(deals.cashback_offers)} offers (age: {merchant_cashback._cache_age_seconds:.0f}s)")
-                    return merchant_cashback
-                    
-            except Exception as e:
-                logger.warning(f"[CACHE] RetailerIntelligence lookup failed for {merchant}: {e}")
+        if not force_refresh:
+            cached_result = await self._get_from_intelligence_cache(merchant)
+            if cached_result:
+                return cached_result
         
         # 2. Check in-memory cache (fallback if no intelligence)
         if not self.intelligence:
             cached = self._get_cached(merchant)
             if cached:
-                cached._from_cache = True
+                cached.set_cache_metadata(from_cache=True, age_seconds=cached.cache_age_seconds)
                 return cached
         
         # 3. Fresh scrape required
         logger.info(f"[SCRAPING] Fresh scrape for {merchant}...")
         platforms_to_check = platforms or self.platforms
-        client = await self._get_client()
-        
-        # Query all platforms in parallel
-        tasks = []
-        for platform in platforms_to_check:
-            scraper = self._scrapers.get(platform)
-            if scraper:
-                tasks.append(self._safe_scrape(scraper, merchant, client, platform))
-        
-        results = await asyncio.gather(*tasks)
-        
-        # Aggregate results
-        merchant_cashback = MerchantCashback(
-            merchant=merchant,
-            checked_at=datetime.now().isoformat(),
-        )
-        merchant_cashback._from_cache = False
-        merchant_cashback._cache_age_seconds = 0
-        
-        for offers in results:
-            for offer in offers:
-                merchant_cashback.add_offer(offer)
+        merchant_cashback = await self._scrape_all_platforms(merchant, platforms_to_check)
         
         # 4. Store in RetailerIntelligence (persistent cache)
         if self.intelligence and merchant_cashback.offers:
@@ -455,12 +482,12 @@ class CashbackMonitor:
         # Store in database
         self.intelligence.db.save_cashback_offers(db_retailer.id, stored_offers)
         
-        # Warm Redis cache
+        # Warm Redis cache using proper serialization
         await self.intelligence.cache.set_deals(
             normalize_retailer_name(merchant),
             {
                 "retailer": merchant,
-                "cashback_offers": [o.__dict__ for o in stored_offers],
+                "cashback_offers": [o.to_dict() for o in stored_offers],
                 "_cached_at": datetime.now().isoformat(),
                 "_tier": db_retailer.tier.value if db_retailer.tier else "standard",
             },

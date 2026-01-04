@@ -25,6 +25,9 @@ except ImportError:
         "For production, install bcrypt: pip install bcrypt"
     )
 
+# Demo mode flag - only in demo mode can $demo$ passwords authenticate
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+
 logger = logging.getLogger(__name__)
 
 
@@ -108,25 +111,50 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its hash."""
-    # Handle demo user special case
+    """
+    Verify a password against its hash.
+    
+    Handles:
+    - bcrypt hashes ($2a$, $2b$, etc.)
+    - SHA256 with salt fallback ($sha256$salt$hash)
+    - Demo passwords ($demo$password) - ONLY when DEMO_MODE is enabled
+    
+    Returns False for malformed or unrecognized hash formats.
+    """
+    # Guard against None or non-string inputs
+    if not password_hash or not isinstance(password_hash, str):
+        return False
+    
+    # Handle demo user special case - ONLY when DEMO_MODE is enabled
     if password_hash.startswith("$demo$"):
+        if not DEMO_MODE:
+            logger.warning("Demo password attempted outside DEMO_MODE")
+            return False
         return password == password_hash[6:]
     
+    # bcrypt hashes
     if BCRYPT_AVAILABLE and password_hash.startswith("$2"):
+        # Validate bcrypt hash length (minimum 59 chars)
+        if len(password_hash) < 59:
+            return False
         try:
             return bcrypt.checkpw(password.encode(), password_hash.encode())
         except Exception:
             return False
-    elif password_hash.startswith("$sha256$"):
+    
+    # SHA256 with salt fallback
+    if password_hash.startswith("$sha256$"):
         parts = password_hash.split("$")
         if len(parts) != 4:
             return False
         salt = parts[2]
         stored_hash = parts[3]
+        if not salt or not stored_hash:
+            return False
         computed = hashlib.sha256((salt + password).encode()).hexdigest()
         return computed == stored_hash
     
+    # Unrecognized format
     return False
 
 
@@ -174,6 +202,49 @@ class UserDatabase:
             yield conn
         finally:
             conn.close()
+    
+    # =========================================================================
+    # Row Mapping Helpers
+    # =========================================================================
+    
+    @staticmethod
+    def _row_to_user(row: sqlite3.Row) -> User:
+        """Convert a database row to a User object."""
+        return User(
+            id=row["id"],
+            email=row["email"],
+            password_hash=row["password_hash"],
+            is_admin=bool(row["is_admin"]),
+            tax_rate=row["tax_rate"],
+            location=row["location"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"]
+        )
+    
+    @staticmethod
+    def _row_to_card(row: sqlite3.Row) -> UserCard:
+        """Convert a database row to a UserCard object."""
+        import json
+        bonus = json.loads(row["bonus_categories"]) if row["bonus_categories"] else []
+        return UserCard(
+            id=row["id"],
+            user_id=row["user_id"],
+            card_id=row["card_id"],
+            name=row["name"],
+            issuer=row["issuer"],
+            base_rate=row["base_rate"],
+            bonus_categories=bonus,
+            is_custom=bool(row["is_custom"]),
+            created_at=row["created_at"]
+        )
+    
+    @staticmethod
+    def _serialize_bonus_categories(bonus_categories: Optional[List[dict]]) -> Optional[str]:
+        """Serialize bonus categories to JSON for storage."""
+        import json
+        if bonus_categories:
+            return json.dumps(bonus_categories)
+        return None
     
     def _init_db(self):
         """Initialize database schema."""
@@ -304,16 +375,7 @@ class UserDatabase:
             row = cursor.fetchone()
             
             if row:
-                return User(
-                    id=row["id"],
-                    email=row["email"],
-                    password_hash=row["password_hash"],
-                    is_admin=bool(row["is_admin"]),
-                    tax_rate=row["tax_rate"],
-                    location=row["location"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"]
-                )
+                return self._row_to_user(row)
             return None
     
     def get_user_by_id(self, user_id: int) -> Optional[User]:
@@ -324,16 +386,7 @@ class UserDatabase:
             row = cursor.fetchone()
             
             if row:
-                return User(
-                    id=row["id"],
-                    email=row["email"],
-                    password_hash=row["password_hash"],
-                    is_admin=bool(row["is_admin"]),
-                    tax_rate=row["tax_rate"],
-                    location=row["location"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"]
-                )
+                return self._row_to_user(row)
             return None
     
     def authenticate_user(self, email: str, password: str) -> Optional[User]:
@@ -350,35 +403,56 @@ class UserDatabase:
         logger.warning(f"Authentication failed for: {email}")
         return None
     
+    # Sentinel value to indicate "clear this field" vs "don't update"
+    _CLEAR_VALUE = object()
+    
     def update_user_settings(
         self,
         user_id: int,
         tax_rate: Optional[float] = None,
-        location: Optional[str] = None
+        location: Optional[str] = None,
+        clear_tax_rate: bool = False,
     ) -> bool:
-        """Update user's preferences."""
+        """
+        Update user's preferences.
+        
+        Args:
+            user_id: User ID to update
+            tax_rate: New tax rate (None = don't change, use clear_tax_rate to clear)
+            location: New location (None = don't change)
+            clear_tax_rate: If True, clears the tax_rate to NULL (for auto-detection)
+        """
         now = datetime.now().isoformat()
         
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
-            updates = ["updated_at = ?"]
-            params = [now]
+            # Use parameterized update - no string concatenation
+            if clear_tax_rate:
+                # Clear tax rate to NULL
+                cursor.execute(
+                    "UPDATE users SET tax_rate = NULL, updated_at = ? WHERE id = ?",
+                    (now, user_id)
+                )
+            elif tax_rate is not None and location is not None:
+                cursor.execute(
+                    "UPDATE users SET tax_rate = ?, location = ?, updated_at = ? WHERE id = ?",
+                    (tax_rate, location, now, user_id)
+                )
+            elif tax_rate is not None:
+                cursor.execute(
+                    "UPDATE users SET tax_rate = ?, updated_at = ? WHERE id = ?",
+                    (tax_rate, now, user_id)
+                )
+            elif location is not None:
+                cursor.execute(
+                    "UPDATE users SET location = ?, updated_at = ? WHERE id = ?",
+                    (location, now, user_id)
+                )
+            else:
+                # No changes
+                return True
             
-            if tax_rate is not None:
-                updates.append("tax_rate = ?")
-                params.append(tax_rate)
-            
-            if location is not None:
-                updates.append("location = ?")
-                params.append(location)
-            
-            params.append(user_id)
-            
-            cursor.execute(
-                f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
-                params
-            )
             conn.commit()
             return cursor.rowcount > 0
     
@@ -388,19 +462,7 @@ class UserDatabase:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
             
-            return [
-                User(
-                    id=row["id"],
-                    email=row["email"],
-                    password_hash=row["password_hash"],
-                    is_admin=bool(row["is_admin"]),
-                    tax_rate=row["tax_rate"],
-                    location=row["location"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"]
-                )
-                for row in cursor.fetchall()
-            ]
+            return [self._row_to_user(row) for row in cursor.fetchall()]
     
     def get_user_count(self) -> int:
         """Get total number of users."""
@@ -429,9 +491,8 @@ class UserDatabase:
         Returns:
             UserCard if added, None if already exists.
         """
-        import json
         now = datetime.now().isoformat()
-        bonus_json = json.dumps(bonus_categories or [])
+        bonus_json = self._serialize_bonus_categories(bonus_categories) or "[]"
         
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -462,8 +523,6 @@ class UserDatabase:
     
     def get_user_cards(self, user_id: int) -> List[UserCard]:
         """Get all cards in a user's wallet."""
-        import json
-        
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -471,21 +530,7 @@ class UserDatabase:
                 (user_id,)
             )
             
-            cards = []
-            for row in cursor.fetchall():
-                bonus = json.loads(row["bonus_categories"]) if row["bonus_categories"] else []
-                cards.append(UserCard(
-                    id=row["id"],
-                    user_id=row["user_id"],
-                    card_id=row["card_id"],
-                    name=row["name"],
-                    issuer=row["issuer"],
-                    base_rate=row["base_rate"],
-                    bonus_categories=bonus,
-                    is_custom=bool(row["is_custom"]),
-                    created_at=row["created_at"]
-                ))
-            return cards
+            return [self._row_to_card(row) for row in cursor.fetchall()]
     
     def remove_card_from_wallet(self, user_id: int, card_id: str) -> bool:
         """Remove a card from user's wallet."""

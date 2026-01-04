@@ -1,0 +1,64 @@
+classDiagram
+    class MerchantCashback {
+        +str merchant
+        +list~CashbackOffer~ offers
+        +CashbackOffer best_offer
+        +str checked_at
+        -bool _from_cache
+        -float _cache_age_seconds
+        +bool from_cache
+        +float cache_age_seconds
+        +str cache_age_human
+        +__post_init()
+        +add_offer(offer)
+        +dict to_dict()
+    }
+
+    class CashbackMonitor {
+        +RetailerIntelligence intelligence
+        +list~CashbackPlatform~ platforms
+        +dict _cache
+        +async MerchantCashback find_best_cashback(merchant, platforms, force_refresh)
+        +async _store_to_intelligence(merchant, cashback)
+        +MerchantCashback _get_cached(merchant)
+        +void _set_cached(merchant, cashback)
+    }
+
+    class OptimizationResult {
+        +float best_price
+        +float best_net_price
+        +list~dict~ all_cashback_offers
+        +bool cashback_from_cache
+        +float cashback_cache_age_seconds
+        +str cashback_last_updated
+        +dict to_dict()
+    }
+
+    class NetPriceOptimizer {
+        -list~dict~ _found_cashback_offers
+        -bool _cashback_from_cache
+        -float _cashback_cache_age_seconds
+        -str _cashback_last_updated
+        +async OptimizationResult optimize(query)
+        +async _calculate_savings(product)
+        +async _get_cashback_monitor()
+    }
+
+    class SavingsResponse {
+        +float cashback_percent
+        +float cashback_value
+        +list~dict~ all_cashback_rates
+        +bool cashback_from_cache
+        +str cashback_last_updated
+    }
+
+    class ApiServer {
+        +async SavingsResponse find_best_price(request, req)
+    }
+
+    MerchantCashback <.. CashbackMonitor : creates
+    CashbackMonitor <.. NetPriceOptimizer : uses
+    NetPriceOptimizer --> OptimizationResult : returns
+    NetPriceOptimizer --> MerchantCashback : reads_cache_metadata
+    OptimizationResult --> SavingsResponse : data_mapped_to
+    ApiServer --> SavingsResponse : returns

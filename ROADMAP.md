@@ -94,7 +94,7 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 4. If fresh: return cached data with metadata
 5. If stale/missing: scrape all 5 platforms
 6. Store results to SQLite and warm Redis
-7. Return with cache_from=false, last_updated="Just scraped"
+7. Return with cashback_from_cache=false, cashback_last_updated="Just scraped"
 ```
 
 #### Tasks Progress:
