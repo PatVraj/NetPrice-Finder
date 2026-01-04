@@ -44,6 +44,20 @@ class RakutenScraper(BaseScraper):
         "lowes": "lowes",
         "sephora": "sephora",
         "adidas": "adidas",
+        "pandora": "pandora-jewelry",
+        "pandora jewelry": "pandora-jewelry",
+        "ulta": "ultabeauty",
+        "ulta beauty": "ultabeauty",
+        "kohl's": "kohls",
+        "kohls": "kohls",
+        "old navy": "oldnavy",
+        "dick's sporting goods": "dickssportinggoods",
+    }
+    
+    # Alternative slug patterns to try if the first one fails
+    SLUG_ALTERNATIVES = {
+        "pandora": ["pandora-jewelry", "pandora"],
+        "ulta": ["ultabeauty", "ulta-beauty", "ulta"],
     }
     
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
@@ -134,39 +148,69 @@ class RakutenScraper(BaseScraper):
         from ..monitor import CashbackOffer, CashbackPlatform
         
         offers = []
-        slug = self._get_slug(merchant)
-        merchant_url = f"https://www.rakuten.com/shop/{slug}"
+        merchant_lower = merchant.lower().strip()
         
-        logger.debug(f"[{self.PLATFORM_NAME}] Browser scraping: {merchant_url}")
+        # Get all slugs to try (primary + alternatives)
+        slugs_to_try = self._get_all_slugs(merchant)
         
-        data = await self._browser_extract(
-            client,
-            merchant_url,
-            {},  # No specific selectors needed
-            wait_for="networkidle",
-        )
+        # URL patterns to try for each slug
+        url_patterns = [
+            "https://www.rakuten.com/{slug}",           # Direct slug (most common)
+            "https://www.rakuten.com/shop/{slug}",      # /shop/ pattern
+        ]
         
-        if not data:
+        data = None
+        successful_url = None
+        
+        # Try each slug with each URL pattern
+        for slug in slugs_to_try:
+            for pattern in url_patterns:
+                merchant_url = pattern.format(slug=slug)
+                logger.debug(f"[{self.PLATFORM_NAME}] Trying: {merchant_url}")
+                
+                data = await self._browser_extract(
+                    client,
+                    merchant_url,
+                    {},  # No specific selectors needed
+                    wait_for="networkidle",
+                )
+                
+                if data:
+                    body_text = data.get("body_text", "")
+                    # Check if this is NOT a 404 page
+                    if not self._is_not_found(body_text) and len(body_text) > 500:
+                        successful_url = merchant_url
+                        logger.debug(f"[{self.PLATFORM_NAME}] Found valid page at {merchant_url}")
+                        break
+            
+            if successful_url:
+                break
+        
+        if not data or not successful_url:
+            logger.debug(f"[{self.PLATFORM_NAME}] No valid page found for '{merchant}'")
             return offers
         
         body_text = data.get("body_text", "")
-        
-        logger.debug(f"[{self.PLATFORM_NAME}] Got body_text: {len(body_text)} chars")
-        
-        # Check for 404 page
-        if self._is_not_found(body_text):
-            logger.debug(f"[{self.PLATFORM_NAME}] Page not found for '{merchant}'")
-            return offers
+        logger.debug(f"[{self.PLATFORM_NAME}] Got body_text: {len(body_text)} chars from {successful_url}")
         
         # Parse body_text for cashback rates
         patterns = [
+            # "4% Online" or "X% Online" pattern (Rakuten format)
+            r'(\d+(?:\.\d+)?)\s*%\s*Online',
             # "Get 6% Cash Back" pattern
             r'Get\s+(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
             # "X% Cash Back" pattern
             r'(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
+            # "was X%" elevated rate pattern
+            r'was\s+(\d+(?:\.\d+)?)\s*%',
             # "Up to X%" pattern
             r'Up\s+to\s+(\d+(?:\.\d+)?)\s*%',
         ]
+        
+        # Check for elevated/boosted rate
+        is_elevated = any(phrase in body_text.lower() for phrase in [
+            "was ", "boosted", "elevated", "hot deal", "limited time"
+        ])
         
         for pattern in patterns:
             match = re.search(pattern, body_text, re.IGNORECASE)
@@ -174,21 +218,25 @@ class RakutenScraper(BaseScraper):
                 percent = float(match.group(1))
                 # Filter valid rates (cashback rarely exceeds 25%)
                 if self._filter_valid_rate(percent):
-                    logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back")
+                    logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back{' (elevated)' if is_elevated else ''}")
                     offers.append(CashbackOffer(
                         platform=CashbackPlatform.RAKUTEN,
                         merchant=merchant,
                         cashback_percent=percent,
                         cashback_fixed=None,
                         cashback_text=f"{percent}% Cash Back",
-                        affiliate_url=merchant_url,
+                        affiliate_url=successful_url,
                         last_updated=datetime.now().isoformat(),
+                        is_elevated=is_elevated,
                         confidence=0.9,
                     ))
                     break
         
         if not offers:
-            logger.debug(f"[{self.PLATFORM_NAME}] No rate pattern matched for '{merchant}'")
+            logger.debug(f"[{self.PLATFORM_NAME}] No rate pattern matched for '{merchant}' in body_text")
+            # Log a snippet for debugging
+            if body_text:
+                logger.debug(f"[{self.PLATFORM_NAME}] Body preview: {body_text[:300]}...")
         
         return offers
     
@@ -267,19 +315,53 @@ class RakutenScraper(BaseScraper):
         return promos
     
     def _get_slug(self, merchant: str) -> str:
-        """Get URL slug for merchant."""
+        """Get primary URL slug for merchant."""
         merchant_lower = merchant.lower().strip()
         if merchant_lower in self.SLUG_OVERRIDES:
             return self.SLUG_OVERRIDES[merchant_lower]
         # Rakuten slugs have no spaces or apostrophes
         return merchant.lower().replace(" ", "").replace("'", "")
     
+    def _get_all_slugs(self, merchant: str) -> list:
+        """Get all possible URL slugs to try for a merchant."""
+        merchant_lower = merchant.lower().strip()
+        slugs = []
+        
+        # Check for specific alternatives first
+        if merchant_lower in self.SLUG_ALTERNATIVES:
+            slugs.extend(self.SLUG_ALTERNATIVES[merchant_lower])
+        
+        # Add the primary slug
+        primary_slug = self._get_slug(merchant)
+        if primary_slug not in slugs:
+            slugs.append(primary_slug)
+        
+        # Add fallback patterns
+        basic_slug = merchant.lower().replace(" ", "").replace("'", "")
+        if basic_slug not in slugs:
+            slugs.append(basic_slug)
+        
+        # Add hyphenated version
+        hyphen_slug = merchant.lower().replace(" ", "-").replace("'", "")
+        if hyphen_slug not in slugs:
+            slugs.append(hyphen_slug)
+        
+        return slugs
+    
     def _is_not_found(self, body_text: str) -> bool:
-        """Check if page is a 404."""
+        """Check if page is a 404 or vendor not available."""
         lower = body_text.lower()
-        return any(phrase in lower for phrase in [
+        not_found_phrases = [
             "page not found",
             "doesn't exist",
+            "does not exist",
             "we couldn't find",
+            "we could not find",
             "404",
-        ])
+            "no longer available",
+            "is not available",
+            "store not found",
+            "merchant not found",
+            "this store is currently unavailable",
+        ]
+        return any(phrase in lower for phrase in not_found_phrases)
