@@ -813,6 +813,8 @@ class RetailerDatabase:
 
     def get_platform_status(self) -> list:
         """Get status of each cashback platform."""
+        MIN_SAMPLE_SIZE = 5  # Minimum scrapes to consider platform status reliable
+        
         with self._get_connection() as conn:
             cursor = conn.cursor()
             
@@ -835,12 +837,20 @@ class RetailerDatabase:
                 successful = row["successful"]
                 success_rate = (successful / total * 100) if total > 0 else 0
                 
+                # Platform is active if:
+                # 1. Has enough sample size (MIN_SAMPLE_SIZE scrapes)
+                # 2. Success rate is above 50%
+                # 3. Has recent activity (last scrape within 24 hours - already filtered in query)
+                is_active = total >= MIN_SAMPLE_SIZE and success_rate > 50
+                
                 platforms.append({
                     "name": row["platform"],
-                    "active": success_rate > 50,
-                    "success_rate": f"{success_rate:.0f}%",
+                    "active": is_active,
+                    "success_rate": round(success_rate, 1),  # Numeric for frontend flexibility
+                    "success_rate_display": f"{success_rate:.0f}%",
                     "total_scrapes": total,
-                    "last_scrape": row["last_scrape"]
+                    "last_scrape": row["last_scrape"],
+                    "reliable": total >= MIN_SAMPLE_SIZE  # Indicates if sample size is sufficient
                 })
             
             return platforms

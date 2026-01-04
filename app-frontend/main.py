@@ -20,6 +20,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import hashlib
 import secrets
+import logging
+
+# Optional: Use bcrypt if available, fallback to sha256 with warning
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
+    logging.warning(
+        "⚠️ bcrypt not installed. Using SHA256 for password hashing. "
+        "For production, install bcrypt: pip install bcrypt"
+    )
 
 # =============================================================================
 # Configuration
@@ -28,6 +40,8 @@ import secrets
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+STORAGE_SECRET = os.getenv("STORAGE_SECRET", "netprice-dev-secret-change-in-production")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 # =============================================================================
 # Data Models
@@ -106,26 +120,51 @@ class AppState:
 
 state = AppState()
 
-# Demo admin user
-state.users_db["admin@netprice.local"] = User(
-    id="1",
-    email="admin@netprice.local",
-    password_hash=hashlib.sha256("admin123".encode()).hexdigest(),
-    is_admin=True,
-    created_at=datetime.now().isoformat()
-)
+# Demo admin user - only created when DEMO_MODE=true
+if DEMO_MODE:
+    logging.info("🧪 DEMO_MODE enabled - creating demo admin user")
+    state.users_db["admin@netprice.local"] = User(
+        id="1",
+        email="admin@netprice.local",
+        password_hash="$demo$admin123",  # Special marker for demo user
+        is_admin=True,
+        created_at=datetime.now().isoformat()
+    )
 
 # =============================================================================
 # Authentication Helpers
 # =============================================================================
 
 def hash_password(password: str) -> str:
-    """Hash a password."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using bcrypt (preferred) or SHA256 with salt."""
+    if BCRYPT_AVAILABLE:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    else:
+        # Fallback: salted SHA256 (not ideal, but better than plain SHA256)
+        salt = secrets.token_hex(16)
+        hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+        return f"$sha256${salt}${hashed}"
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password against its hash."""
-    return hash_password(password) == password_hash
+    # Handle demo user special case
+    if password_hash.startswith("$demo$"):
+        return DEMO_MODE and password == password_hash[6:]
+    
+    if BCRYPT_AVAILABLE and password_hash.startswith("$2"):
+        # bcrypt hash
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    elif password_hash.startswith("$sha256$"):
+        # Salted SHA256 fallback
+        parts = password_hash.split("$")
+        if len(parts) == 4:
+            salt = parts[2]
+            expected_hash = parts[3]
+            return hashlib.sha256((salt + password).encode()).hexdigest() == expected_hash
+    else:
+        # Legacy plain SHA256 (for migration compatibility)
+        return hashlib.sha256(password.encode()).hexdigest() == password_hash
+    return False
 
 def get_current_user() -> Optional[User]:
     """Get the currently logged in user."""
@@ -148,13 +187,15 @@ def is_admin() -> bool:
 # =============================================================================
 
 async def init_redis() -> Optional[redis.Redis]:
-    """Initialize Redis connection."""
+    """Initialize async Redis connection."""
     try:
+        # Using redis.asyncio.Redis - ping() is awaitable
         client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=False)
+        # Verify connection with async ping
         await client.ping()
         return client
     except Exception as e:
-        print(f"⚠️ Redis connection failed: {e}")
+        logging.warning(f"⚠️ Redis connection failed: {e}")
         return None
 
 # =============================================================================
@@ -702,7 +743,8 @@ async def create_admin():
             for platform in platform_status:
                 name = platform.get('name', 'Unknown')
                 active = platform.get('active', False)
-                rate = platform.get('success_rate', '—')
+                rate = platform.get('success_rate_display', platform.get('success_rate', '—'))
+                reliable = platform.get('reliable', True)
                 
                 with ui.row().classes('w-full justify-between items-center py-2 sm:py-3 border-b border-gray-700/30 flex-wrap gap-2'):
                     with ui.row().classes('items-center gap-2 sm:gap-3'):
@@ -723,6 +765,38 @@ async def create_admin():
 
 def create_cards():
     """Create cards page."""
+    # Redirect if not authenticated
+    if not is_authenticated():
+        ui.navigate.to('/login')
+        return
+    
+    cards_container = None
+    
+    def render_wallet():
+        """Render the wallet cards list."""
+        nonlocal cards_container
+        if cards_container:
+            cards_container.clear()
+        
+        with cards_container:
+            if not state.user_cards:
+                with ui.column().classes('items-center py-6 sm:py-8'):
+                    ui.icon('credit_card_off', size='xl', color='gray')
+                    ui.label('No cards added').classes('text-gray-400 mt-4')
+            else:
+                for i, card in enumerate(state.user_cards):
+                    with ui.row().classes('w-full justify-between items-center p-3 sm:p-4 bg-gray-800/50 rounded-lg mb-2 flex-wrap gap-2'):
+                        with ui.column():
+                            ui.label(card.name).classes('text-white font-medium text-sm sm:text-base')
+                            ui.label(card.issuer).classes('text-gray-400 text-xs sm:text-sm')
+                        
+                        def remove_card(index=i, card_name=card.name):
+                            state.user_cards.pop(index)
+                            ui.notify(f'Removed {card_name}', type='info')
+                            render_wallet()
+                        
+                        ui.button(icon='close', on_click=remove_card).props('flat round size=sm color=gray')
+    
     with ui.column().classes('w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
@@ -730,18 +804,8 @@ def create_cards():
         
         with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
             ui.label('Your Wallet').classes('text-base sm:text-lg font-semibold text-white mb-4')
-            
-            if not state.user_cards:
-                with ui.column().classes('items-center py-6 sm:py-8'):
-                    ui.icon('credit_card_off', size='xl', color='gray')
-                    ui.label('No cards added').classes('text-gray-400 mt-4')
-            else:
-                for card in state.user_cards:
-                    with ui.row().classes('w-full justify-between items-center p-3 sm:p-4 bg-gray-800/50 rounded-lg mb-2 flex-wrap gap-2'):
-                        with ui.column():
-                            ui.label(card.name).classes('text-white font-medium text-sm sm:text-base')
-                            ui.label(card.issuer).classes('text-gray-400 text-xs sm:text-sm')
-                        ui.button(icon='close').props('flat round size=sm color=gray')
+            cards_container = ui.column().classes('w-full')
+            render_wallet()
         
         with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
             ui.label('Add Cards').classes('text-base sm:text-lg font-semibold text-white mb-4')
@@ -767,6 +831,15 @@ def create_cards():
 
 def create_settings():
     """Create settings page."""
+    # Redirect if not authenticated
+    if not is_authenticated():
+        ui.navigate.to('/login')
+        return
+    
+    def on_location_change(e):
+        state.user_location = e.value
+        ui.notify(f'Location set to {e.value}', type='positive')
+    
     with ui.column().classes('w-full max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
@@ -776,7 +849,12 @@ def create_settings():
             ui.label('Location').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
             states = ["California", "Texas", "New York", "Florida", "Oregon"]
-            ui.select(states, label='State', value=state.user_location).classes('w-full')
+            ui.select(
+                states, 
+                label='State', 
+                value=state.user_location,
+                on_change=on_location_change
+            ).classes('w-full')
 
 def create_footer():
     """Create footer."""
@@ -877,5 +955,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         favicon='💰',
         reload=False,
         show=False,
-        storage_secret='netprice-secret-key-change-in-production'
+        storage_secret=STORAGE_SECRET
     )
