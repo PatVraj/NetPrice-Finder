@@ -203,11 +203,11 @@ async def get_retailer_stats() -> Dict[str, Any]:
     """Fetch retailer stats for admin dashboard."""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"{API_URL}/intelligence/stats")
+            response = await client.get(f"{API_URL}/api/v1/intelligence/stats")
             if response.status_code == 200:
                 return response.json()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Stats API Error: {e}")
     return {}
 
 # =============================================================================
@@ -501,20 +501,31 @@ def create_register():
             ui.label("Have an account?").classes('text-gray-400 text-sm')
             ui.link('Sign in', '/login').classes('text-emerald-400 text-sm no-underline')
 
-def create_admin():
-    """Create admin dashboard."""
+async def create_admin():
+    """Create admin dashboard with real data from SQLite."""
     if not is_admin():
         ui.navigate.to('/')
         return
     
+    # Fetch real stats from API
+    stats_data = await get_retailer_stats()
+    db_stats = stats_data.get("database", {})
+    top_retailers = stats_data.get("top_retailers", [])
+    platform_status = stats_data.get("platform_status", [])
+    
     with ui.column().classes('w-full max-w-6xl mx-auto px-6 py-8'):
         ui.label('Admin Dashboard').classes('text-3xl font-bold text-white mb-8')
         
+        # Stats cards with real data
+        total_retailers = db_stats.get("total_retailers", 0)
+        total_cashback = db_stats.get("total_cashback_offers", 0)
+        total_queries = db_stats.get("total_queries", 0)
+        
         with ui.row().classes('w-full gap-4 mb-8 flex-wrap'):
             for label, value, icon, color in [
-                ('Retailers', '156', 'store', 'emerald'),
-                ('Cashback Entries', '423', 'attach_money', 'blue'),
-                ('Total Queries', '1,847', 'search', 'purple'),
+                ('Retailers', str(total_retailers), 'store', 'emerald'),
+                ('Cashback Entries', str(total_cashback), 'attach_money', 'blue'),
+                ('Total Queries', f'{total_queries:,}', 'search', 'purple'),
                 ('Users', str(len(state.users_db)), 'people', 'amber'),
             ]:
                 with ui.card().classes('flex-1 min-w-[200px] stat-card rounded-xl p-5'):
@@ -524,6 +535,7 @@ def create_admin():
                             ui.label(value).classes('text-2xl font-bold text-white')
                             ui.label(label).classes('text-gray-400 text-xs')
         
+        # Top Retailers table with real data
         with ui.card().classes('w-full glass rounded-xl p-6'):
             ui.label('Top Retailers').classes('text-lg font-semibold text-white mb-4')
             
@@ -534,35 +546,39 @@ def create_admin():
                 {'name': 'avg_cashback', 'label': 'Avg CB', 'field': 'avg_cashback', 'align': 'right'},
             ]
             
-            rows = [
-                {'rank': 1, 'name': 'Amazon', 'queries': 542, 'avg_cashback': '4.2%'},
-                {'rank': 2, 'name': 'Target', 'queries': 234, 'avg_cashback': '2.5%'},
-                {'rank': 3, 'name': 'Walmart', 'queries': 198, 'avg_cashback': '3.1%'},
-                {'rank': 4, 'name': 'Best Buy', 'queries': 156, 'avg_cashback': '5.0%'},
-                {'rank': 5, 'name': 'Nike', 'queries': 89, 'avg_cashback': '8.0%'},
-            ]
-            
-            ui.table(columns=columns, rows=rows).classes('w-full').props('dark flat dense')
+            # Use real data or show empty state
+            if top_retailers:
+                ui.table(columns=columns, rows=top_retailers).classes('w-full').props('dark flat dense')
+            else:
+                ui.label('No retailer data yet. Run some searches to populate.').classes('text-gray-400 text-sm')
         
+        # Platform Status with real data
         with ui.card().classes('w-full glass rounded-xl p-6 mt-6'):
             ui.label('Platform Status').classes('text-lg font-semibold text-white mb-4')
             
-            platforms = [
-                ('Rakuten', True, '98%'),
-                ('TopCashback', True, '95%'),
-                ('Honey', False, '—'),
-                ('BeFrugal', True, '92%'),
-                ('Swagbucks', True, '89%'),
-            ]
+            # Default platforms if no data
+            if not platform_status:
+                platform_status = [
+                    {'name': 'Rakuten', 'active': True, 'success_rate': '—'},
+                    {'name': 'TopCashback', 'active': True, 'success_rate': '—'},
+                    {'name': 'Honey', 'active': True, 'success_rate': '—'},
+                    {'name': 'BeFrugal', 'active': True, 'success_rate': '—'},
+                    {'name': 'Swagbucks', 'active': True, 'success_rate': '—'},
+                ]
             
-            for name, active, rate in platforms:
+            for platform in platform_status:
+                name = platform.get('name', 'Unknown')
+                active = platform.get('active', False)
+                rate = platform.get('success_rate', '—')
+                
                 with ui.row().classes('w-full justify-between items-center py-3 border-b border-gray-700/30'):
                     with ui.row().classes('items-center gap-3'):
                         ui.icon('circle', size='xs', color='green' if active else 'red')
                         ui.label(name).classes('text-white')
-                    ui.label('Active' if active else 'Disabled').classes('text-gray-400 text-sm')
+                    ui.label('Active' if active else 'Inactive').classes('text-gray-400 text-sm')
                     ui.label(rate).classes('text-emerald-400 font-medium')
         
+        # Users section (from in-memory state)
         with ui.card().classes('w-full glass rounded-xl p-6 mt-6'):
             ui.label('Users').classes('text-lg font-semibold text-white mb-4')
             
@@ -689,7 +705,7 @@ async def admin_page():
     
     create_navbar()
     with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
-        create_admin()
+        await create_admin()
         create_footer()
 
 @ui.page('/cards')

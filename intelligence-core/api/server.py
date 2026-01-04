@@ -578,9 +578,14 @@ async def get_intelligence_stats():
     
     try:
         stats = await app.state.intelligence.get_stats()
+        top_retailers = await app.state.intelligence.get_top_retailers(10)
+        platform_status = await app.state.intelligence.get_platform_status()
+        
         return {
             "available": True,
-            **stats
+            **stats,
+            "top_retailers": top_retailers,
+            "platform_status": platform_status,
         }
     except Exception as e:
         logger.error(f"Error getting intelligence stats: {e}")
