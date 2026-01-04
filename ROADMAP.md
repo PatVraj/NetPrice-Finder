@@ -186,13 +186,13 @@ Currently the app only finds cashback for the URL the user pastes. It doesn't se
 | Fix `user_tax_rate` AttributeError | ✅ | 🔴 Critical | User class + find_best_price() fixed |
 | Review all AppState attributes | ✅ | 🔴 Critical | No other broken refs found |
 | Add input validation across all forms | ✅ | 🔴 Critical | `test_input_validation.py` (28 tests) |
-| Create end-to-end test for product search | ⬜ | 🔴 Critical | Full flow test |
 | Add API error handling tests | ✅ | 🔴 Critical | `test_error_handling.py` (36 tests) |
-| Test unauthenticated user flows | ⬜ | 🟡 Medium | Ensure proper redirects |
-| Test admin-only routes | ⬜ | 🟡 Medium | Verify access control |
-| Add database constraint tests | ⬜ | 🟡 Medium | Foreign keys, unique constraints |
-| Load testing with concurrent users | ⬜ | 🟢 Low | Performance under load |
-| Browser compatibility testing | ⬜ | 🟢 Low | Chrome, Firefox, Safari, Edge |
+| Create end-to-end test for product search | 🔜 | 🔴 Critical | *Future work* – requires browser automation |
+| Test unauthenticated user flows | 🔜 | 🟡 Medium | *Future work* – ensure proper redirects |
+| Test admin-only routes | 🔜 | 🟡 Medium | *Future work* – verify access control |
+| Add database constraint tests | 🔜 | 🟡 Medium | *Future work* – foreign keys, unique constraints |
+| Load testing with concurrent users | 🔜 | 🟢 Low | *Future work* – performance under load |
+| Browser compatibility testing | 🔜 | 🟢 Low | *Future work* – Chrome, Firefox, Safari, Edge |
 
 **Test Suites Added (2026-01-06):**
 
