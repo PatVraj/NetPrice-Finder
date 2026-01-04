@@ -1,0 +1,94 @@
+# =============================================================================
+# SSIP Intelligence Core - Ollama Prompts & Tools
+# =============================================================================
+# This directory contains prompt templates and tool definitions for the LLM
+# =============================================================================
+
+# Semantic Router Configuration
+router:
+  model: "llama3.1:8b"
+  temperature: 0.1
+  max_tokens: 100
+
+# Available Tools
+tools:
+  - name: scrape_merchant
+    description: "Navigate to a merchant website and extract pricing/cashback information"
+    parameters:
+      merchant_name:
+        type: string
+        required: true
+        description: "Name of the merchant to scrape"
+      
+  - name: scrape_url
+    description: "Navigate to a specific URL and extract content"
+    parameters:
+      url:
+        type: string
+        required: true
+        description: "Full URL to navigate to"
+      
+  - name: check_cashback
+    description: "Check current cashback rates for a store across all portals"
+    parameters:
+      store_name:
+        type: string
+        required: true
+        description: "Name of the store to check"
+      
+  - name: query_transactions
+    description: "Search user's transaction history"
+    parameters:
+      start_date:
+        type: string
+        required: false
+        description: "Start date (YYYY-MM-DD)"
+      end_date:
+        type: string
+        required: false
+        description: "End date (YYYY-MM-DD)"
+      category:
+        type: string
+        required: false
+        description: "Transaction category"
+      merchant:
+        type: string
+        required: false
+        description: "Merchant name"
+      
+  - name: parse_document
+    description: "Parse a bank statement PDF using vision model"
+    parameters:
+      file_path:
+        type: string
+        required: true
+        description: "Path to the PDF file"
+      
+  - name: get_cashback_history
+    description: "Get historical cashback data for a store"
+    parameters:
+      store_name:
+        type: string
+        required: true
+        description: "Name of the store"
+      days:
+        type: integer
+        required: false
+        default: 30
+        description: "Number of days of history"
+      
+  - name: optimize_card
+    description: "Recommend the optimal credit card for a purchase"
+    parameters:
+      merchant:
+        type: string
+        required: true
+        description: "Merchant name"
+      amount:
+        type: number
+        required: false
+        description: "Purchase amount"
+      mcc:
+        type: string
+        required: false
+        description: "Merchant Category Code"

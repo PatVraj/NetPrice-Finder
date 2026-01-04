@@ -1,0 +1,29 @@
+# SSIP App Frontend Dependencies
+# NiceGUI-based dashboard with real-time capabilities
+
+# Core Framework
+nicegui>=2.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Redis for message bus
+redis>=5.0.0
+aioredis>=2.0.0
+
+# HTTP Client
+httpx>=0.27.0
+aiohttp>=3.10.0
+
+# Data Validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Utilities
+python-dotenv>=1.0.0
+python-multipart>=0.0.17
+
+# Date/Time
+python-dateutil>=2.9.0
+
+# Logging
+structlog>=24.4.0
