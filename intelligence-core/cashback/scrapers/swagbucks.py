@@ -27,6 +27,14 @@ class SwagbucksScraper(BaseScraper):
     BASE_URL = "https://www.swagbucks.com"
     SEARCH_URL = "https://www.swagbucks.com/shop/search"
     
+    # Slug overrides for merchants with non-standard URLs
+    SLUG_OVERRIDES = {
+        "pandora": "pandora-jewelry",
+        "pandora jewelry": "pandora-jewelry",
+        "ulta": "ulta-beauty", 
+        "ulta beauty": "ulta-beauty",
+    }
+    
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Search Swagbucks for merchant rates."""
         from ..monitor import CashbackOffer, CashbackPlatform
@@ -34,6 +42,8 @@ class SwagbucksScraper(BaseScraper):
         offers = []
         
         try:
+            # Strategy 1: Search page
+            logger.debug(f"[Swagbucks] Strategy 1: Search page for '{merchant}'")
             params = {"q": merchant}
             
             response = await client.get(
@@ -47,39 +57,64 @@ class SwagbucksScraper(BaseScraper):
             if response.status_code == 200:
                 html = response.text
                 
+                # Check for no results
+                if self._is_not_found(html):
+                    logger.debug(f"[Swagbucks] No search results for '{merchant}'")
+                    return offers
+                
+                merchant_lower = merchant.lower()
+                
                 # Swagbucks shows "X SB per $" or "X% back"
-                sb_pattern = r'(\d+)\s*SB\s*(?:per\s*\$|back)'
-                percent_pattern = r'(\d+(?:\.\d+)?%)\s*back'
+                # Look for merchant name followed by rate
+                patterns = [
+                    # "Nike 8% Cash Back"
+                    rf'({re.escape(merchant)})[^<]*?(\d+(?:\.\d+)?)\s*%\s*(?:Cash\s*Back|back)',
+                    # "Nike 8 SB per $"
+                    rf'({re.escape(merchant)})[^<]*?(\d+)\s*SB\s*(?:per\s*\$|back)',
+                    # Just rate near merchant name
+                    rf'({re.escape(merchant)})[^<]*?(\d+(?:\.\d+)?)\s*%',
+                ]
                 
-                sb_matches = re.findall(sb_pattern, html, re.IGNORECASE)
-                percent_matches = re.findall(percent_pattern, html, re.IGNORECASE)
-                
-                percent = None
-                cashback_text = None
-                
-                if percent_matches:
-                    percent, _, original = parse_cashback_rate(percent_matches[0])
-                    cashback_text = original
-                elif sb_matches:
-                    # SB = Swagbucks, roughly 1 SB = $0.01
-                    sb_per_dollar = int(sb_matches[0])
-                    percent = float(sb_per_dollar)  # Approximate as percentage
-                    cashback_text = f"{sb_per_dollar} SB per $1"
-                
-                if percent and self._filter_valid_rate(percent):
-                    logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {cashback_text}")
-                    offers.append(CashbackOffer(
-                        platform=CashbackPlatform.SWAGBUCKS,
-                        merchant=merchant,
-                        cashback_percent=percent,
-                        cashback_text=cashback_text,
-                        terms="Earn Swagbucks (SB) redeemable for gift cards",
-                        affiliate_url=f"{self.SEARCH_URL}?q={quote_plus(merchant)}",
-                        last_updated=datetime.now().isoformat(),
-                        confidence=0.7,
-                    ))
+                for pattern in patterns:
+                    match = re.search(pattern, html, re.IGNORECASE)
+                    if match:
+                        rate_str = match.group(2)
+                        percent = float(rate_str)
+                        
+                        # Determine cashback text
+                        if "sb" in match.group(0).lower():
+                            cashback_text = f"{int(percent)} SB per $1"
+                        else:
+                            cashback_text = f"{percent}% Cash Back"
+                        
+                        if self._filter_valid_rate(percent):
+                            logger.info(f"[Swagbucks] ✓ Found {merchant}: {cashback_text}")
+                            offers.append(CashbackOffer(
+                                platform=CashbackPlatform.SWAGBUCKS,
+                                merchant=merchant,
+                                cashback_percent=percent,
+                                cashback_text=cashback_text,
+                                terms="Earn Swagbucks (SB) redeemable for gift cards",
+                                affiliate_url=f"{self.SEARCH_URL}?q={quote_plus(merchant)}",
+                                last_updated=datetime.now().isoformat(),
+                                confidence=0.8,
+                            ))
+                            return offers
                     
         except Exception as e:
-            logger.debug(f"[{self.PLATFORM_NAME}] Error: {e}")
+            logger.debug(f"[Swagbucks] Error: {e}")
         
+        logger.debug(f"[Swagbucks] No offers found for '{merchant}'")
         return offers
+    
+    def _is_not_found(self, html: str) -> bool:
+        """Check if the page indicates no results found."""
+        not_found_phrases = [
+            "no results",
+            "0 results",
+            "nothing found",
+            "no stores found",
+            "try a different search",
+        ]
+        html_lower = html.lower()
+        return any(phrase in html_lower for phrase in not_found_phrases)

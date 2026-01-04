@@ -384,23 +384,49 @@ def create_search_hero():
                         await update_progress("🌐 Connecting to scraper engine...")
                         await asyncio.sleep(0.1)  # Let UI update
                         
-                        await update_progress("📄 Loading page content...")
+                        await update_progress("📄 Extracting product information...")
+                        await asyncio.sleep(0.1)
+                        
+                        await update_progress("💰 Searching cashback platforms...")
+                        await update_progress("   └─ 🔍 Rakuten...")
+                        await update_progress("   └─ 🔍 TopCashback...")
+                        await update_progress("   └─ 🔍 Honey...")
+                        await update_progress("   └─ 🔍 BeFrugal...")
+                        await update_progress("   └─ 🔍 Swagbucks...")
+                        await asyncio.sleep(0.1)
+                        
+                        await update_progress("🎫 Searching for promo codes...")
+                        await asyncio.sleep(0.1)
+                        
+                        await update_progress("💳 Checking card rewards...")
                         await asyncio.sleep(0.1)
                         
                         # Call the real API
+                        await update_progress("⏳ Processing results...")
                         result = await find_best_price(query)
                         
                         if result:
                             await update_progress("✅ Product info extracted!")
-                            await update_progress(f"💰 Found price: ${result.product_price:.2f}")
-                            if result.cashback_percent > 0:
-                                await update_progress(f"💵 Cashback available: {result.cashback_percent}%")
+                            await update_progress(f"📦 {result.product_name}")
+                            await update_progress(f"💵 Original price: ${result.product_price:.2f}")
+                            
+                            # Show cashback results
+                            if result.search_transparency:
+                                for cb in result.search_transparency.cashback_platforms_checked:
+                                    if cb.found:
+                                        await update_progress(f"   ✓ {cb.platform}: {cb.rate}% Cash Back")
+                                    else:
+                                        await update_progress(f"   ✗ {cb.platform}: Not available")
+                            
                             if result.coupon_code:
                                 await update_progress(f"🏷️ Coupon found: {result.coupon_code}")
                             if result.available_promo_codes:
-                                await update_progress(f"🎫 Found {len(result.available_promo_codes)} promo codes!")
+                                await update_progress(f"🎫 Found {len(result.available_promo_codes)} promo code(s)")
+                            
                             await update_progress("🎯 Calculating best net price...")
-                            await asyncio.sleep(0.3)
+                            await asyncio.sleep(0.2)
+                            await update_progress(f"💰 Net price: ${result.net_price:.2f}")
+                            await update_progress(f"🎉 Total savings: ${result.total_savings:.2f}")
                             
                             state.current_result = result
                             ui.navigate.to('/results')
