@@ -214,28 +214,9 @@ class TopCashbackScraper(BaseScraper):
                     ))
                     return offers
         
-        # Fallback: Check if merchant name is in results and find nearby rate
-        if merchant_lower in body_text.lower():
-            # Find where merchant name appears and look for rate nearby
-            rate_matches = re.findall(r'(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back', body_text, re.IGNORECASE)
-            if rate_matches:
-                for rate_str in rate_matches[:3]:
-                    percent = float(rate_str)
-                    if self._filter_valid_rate(percent):
-                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search fallback)")
-                        offers.append(CashbackOffer(
-                            platform=CashbackPlatform.TOPCASHBACK,
-                            merchant=merchant,
-                            cashback_percent=percent,
-                            cashback_fixed=None,
-                            cashback_text=f"{percent}% Cash Back",
-                            affiliate_url=f"{self.BASE_URL}/{self._get_slug(merchant)}/",
-                            last_updated=datetime.now().isoformat(),
-                            confidence=0.75,
-                        ))
-                        return offers
-        
-        logger.debug(f"[{self.PLATFORM_NAME}] No matching merchant found in search results")
+        # NO FALLBACK - if the exact merchant name isn't found with a rate, 
+        # they don't have this merchant. Don't grab rates from other stores!
+        logger.debug(f"[{self.PLATFORM_NAME}] Merchant '{merchant}' not found in search results (no exact match)")
         return offers
     
     async def _search_api(self, merchant: str, client: httpx.AsyncClient) -> list:

@@ -128,53 +128,37 @@ class RakutenScraper(BaseScraper):
         
         # Try to find the merchant section with rate
         # Look for patterns like "PANDORA Jewelry4% Online" or "Nike8% Onlinewas 6%"
-        patterns = [
-            # Merchant name followed by rate: "PANDORA Jewelry4% Online"
-            rf'({re.escape(merchant)}[^0-9]*?)(\d+(?:\.\d+)?)\s*%\s*Online',
-            # Rate with "was X%" elevated indicator
-            rf'({re.escape(merchant)}[^0-9]*?)(\d+(?:\.\d+)?)\s*%\s*Online\s*was\s*(\d+(?:\.\d+)?)\s*%',
-            # Just the rate near merchant name
-            rf'{re.escape(merchant)}[^0-9]{{0,50}}(\d+(?:\.\d+)?)\s*%\s*(?:Cash\s*Back|Online)',
+        # The search page shows: "PANDORA Jewelry4% Onlinewas 2%2% In-Store"
+        
+        # Build flexible merchant patterns (e.g., "pandora" matches "PANDORA Jewelry")
+        merchant_patterns = [
+            re.escape(merchant),  # Exact match
+            re.escape(merchant) + r'\s+\w+',  # Merchant + one word (e.g., "PANDORA Jewelry")
         ]
         
-        for pattern in patterns:
-            match = re.search(pattern, body_text, re.IGNORECASE)
-            if match:
-                # Get the rate (group 2 for first pattern, or last numeric group)
-                groups = match.groups()
-                # Find the percentage in the groups
-                for g in groups:
-                    if g and re.match(r'^\d+(?:\.\d+)?$', str(g)):
-                        percent = float(g)
-                        if self._filter_valid_rate(percent):
-                            # Check if it's an elevated rate
-                            is_elevated = "was" in match.group(0).lower()
-                            
-                            logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search page){' (elevated)' if is_elevated else ''}")
-                            
-                            offers.append(CashbackOffer(
-                                platform=CashbackPlatform.RAKUTEN,
-                                merchant=merchant,
-                                cashback_percent=percent,
-                                cashback_fixed=None,
-                                cashback_text=f"{percent}% Cash Back",
-                                affiliate_url=search_url,
-                                last_updated=datetime.now().isoformat(),
-                                is_elevated=is_elevated,
-                                confidence=0.95,
-                            ))
-                            return offers
-        
-        # Fallback: look for any rate pattern if merchant name is in page
-        if merchant_lower in body_text.lower():
-            # Find rates in the format "X% Online" or "X% Cash Back"
-            rate_matches = re.findall(r'(\d+(?:\.\d+)?)\s*%\s*(?:Online|Cash\s*Back)', body_text, re.IGNORECASE)
-            if rate_matches:
-                # Use the first reasonable rate found near the search term
-                for rate_str in rate_matches[:5]:
-                    percent = float(rate_str)
+        for merchant_pat in merchant_patterns:
+            patterns = [
+                # "PANDORA Jewelry4% Online" (no space before rate)
+                rf'({merchant_pat})\s*(\d+(?:\.\d+)?)\s*%\s*Online',
+                # "PANDORA Jewelry 4% Online" (with space)
+                rf'({merchant_pat})\s+(\d+(?:\.\d+)?)\s*%\s*Online',
+                # Rate with "was X%" elevated indicator
+                rf'({merchant_pat})\s*(\d+(?:\.\d+)?)\s*%\s*Online\s*was\s*\d+',
+                # "X% Cash Back" format
+                rf'({merchant_pat})\s*(\d+(?:\.\d+)?)\s*%\s*Cash\s*Back',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, body_text, re.IGNORECASE)
+                if match:
+                    # Get the rate (group 2)
+                    percent = float(match.group(2))
                     if self._filter_valid_rate(percent):
-                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search fallback)")
+                        # Check if it's an elevated rate
+                        is_elevated = "was" in match.group(0).lower()
+                        
+                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Cash Back (search page){' (elevated)' if is_elevated else ''}")
+                        
                         offers.append(CashbackOffer(
                             platform=CashbackPlatform.RAKUTEN,
                             merchant=merchant,
@@ -183,11 +167,14 @@ class RakutenScraper(BaseScraper):
                             cashback_text=f"{percent}% Cash Back",
                             affiliate_url=search_url,
                             last_updated=datetime.now().isoformat(),
-                            confidence=0.8,
+                            is_elevated=is_elevated,
+                            confidence=0.95,
                         ))
                         return offers
         
-        logger.debug(f"[{self.PLATFORM_NAME}] No matching merchant found in search results")
+        # NO FALLBACK - if the exact merchant name isn't found with a rate,
+        # they don't have this merchant. Don't grab rates from other stores!
+        logger.debug(f"[{self.PLATFORM_NAME}] Merchant '{merchant}' not found in search results (no exact match)")
         return offers
     
     async def _search_api(self, merchant: str, client: httpx.AsyncClient) -> list:
