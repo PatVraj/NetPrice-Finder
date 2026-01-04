@@ -25,74 +25,125 @@ class HoneyScraper(BaseScraper):
     PLATFORM_NAME = "honey"
     BASE_URL = "https://www.joinhoney.com"
     
+    # Slug overrides for merchants with non-standard URLs
+    SLUG_OVERRIDES = {
+        "pandora": "pandora-jewelry",
+        "pandora jewelry": "pandora-jewelry",
+        "ulta": "ulta-beauty",
+        "ulta beauty": "ulta-beauty",
+        "macy's": "macys",
+        "dick's sporting goods": "dicks-sporting-goods",
+    }
+    
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Search Honey for merchant cashback/rewards."""
         from ..monitor import CashbackOffer, CashbackPlatform
         
         offers = []
-        slug = self.make_slug(merchant)
-        url = f"{self.BASE_URL}/shop/{slug}"
         
         try:
-            response = await client.get(
-                url,
-                headers=self.get_headers(),
-                follow_redirects=True,
-                timeout=10.0,
-            )
+            # Strategy 1: Try known slug overrides
+            slugs_to_try = self._get_all_slugs(merchant)
             
-            if response.status_code == 200:
-                html = response.text
+            for slug in slugs_to_try:
+                url = f"{self.BASE_URL}/shop/{slug}"
+                logger.debug(f"[Honey] Trying URL: {url}")
                 
-                # Look for Honey Gold rewards
-                gold_pattern = r'(\d+(?:\.\d+)?%?)\s*(?:Honey\s*Gold|Gold\s*rewards?|back)'
-                matches = re.findall(gold_pattern, html, re.IGNORECASE)
+                response = await client.get(
+                    url,
+                    headers=self.get_headers(),
+                    follow_redirects=True,
+                    timeout=10.0,
+                )
                 
-                if matches:
-                    rate_text = matches[0]
-                    percent, fixed, original = parse_cashback_rate(rate_text)
+                if response.status_code == 200 and not self._is_not_found(response.text):
+                    html = response.text
                     
-                    if percent and self._filter_valid_rate(percent):
-                        logger.info(f"[{self.PLATFORM_NAME}] ✓ Found {merchant}: {percent}% Honey Gold")
-                        offers.append(CashbackOffer(
-                            platform=CashbackPlatform.HONEY,
-                            merchant=merchant,
-                            cashback_percent=percent,
-                            cashback_fixed=fixed,
-                            cashback_text=f"{original} Honey Gold" if original else "Honey Gold rewards",
-                            affiliate_url=url,
-                            terms="Honey Gold can be redeemed for gift cards",
-                            last_updated=datetime.now().isoformat(),
-                            confidence=0.7,
-                        ))
+                    # Look for Honey Gold rewards
+                    gold_pattern = r'(\d+(?:\.\d+)?)\s*%?\s*(?:Honey\s*Gold|Gold\s*rewards?|back|Cash\s*Back)'
+                    matches = re.findall(gold_pattern, html, re.IGNORECASE)
+                    
+                    if matches:
+                        rate_text = matches[0]
+                        try:
+                            percent = float(rate_text)
+                        except ValueError:
+                            percent, _, _ = parse_cashback_rate(rate_text)
                         
+                        if percent and self._filter_valid_rate(percent):
+                            logger.info(f"[Honey] ✓ Found {merchant}: {percent}% Honey Gold")
+                            offers.append(CashbackOffer(
+                                platform=CashbackPlatform.HONEY,
+                                merchant=merchant,
+                                cashback_percent=percent,
+                                cashback_text=f"{percent}% Honey Gold",
+                                affiliate_url=url,
+                                terms="Honey Gold can be redeemed for gift cards",
+                                last_updated=datetime.now().isoformat(),
+                                confidence=0.8,
+                            ))
+                            return offers
+                            
         except Exception as e:
-            logger.debug(f"[{self.PLATFORM_NAME}] Error: {e}")
+            logger.debug(f"[Honey] Error: {e}")
         
+        logger.debug(f"[Honey] No offers found for '{merchant}'")
         return offers
+    
+    def _get_all_slugs(self, merchant: str) -> list:
+        """Get all possible URL slugs to try for a merchant."""
+        merchant_lower = merchant.lower()
+        slugs = []
+        
+        # Check for override first
+        if merchant_lower in self.SLUG_OVERRIDES:
+            slugs.append(self.SLUG_OVERRIDES[merchant_lower])
+        
+        # Standard slug
+        standard_slug = self.make_slug(merchant)
+        if standard_slug not in slugs:
+            slugs.append(standard_slug)
+        
+        return slugs
+    
+    def _is_not_found(self, html: str) -> bool:
+        """Check if the page indicates merchant not found."""
+        not_found_phrases = [
+            "store not found",
+            "page not found",
+            "no results",
+            "doesn't have any",
+            "not available",
+        ]
+        html_lower = html.lower()
+        return any(phrase in html_lower for phrase in not_found_phrases)
     
     async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Get promo codes from Honey for a merchant."""
         from ..monitor import PromoCode, CashbackPlatform
         
         promos = []
-        slug = self.make_slug(merchant)
-        url = f"{self.BASE_URL}/shop/{slug}"
+        slugs_to_try = self._get_all_slugs(merchant)
         
-        try:
-            response = await client.get(
-                url,
-                headers=self.get_headers(),
-                follow_redirects=True,
-                timeout=10.0,
-            )
+        for slug in slugs_to_try:
+            url = f"{self.BASE_URL}/shop/{slug}"
             
-            if response.status_code == 200:
-                html = response.text
-                promos = self._parse_promo_codes(merchant, html, url)
+            try:
+                response = await client.get(
+                    url,
+                    headers=self.get_headers(),
+                    follow_redirects=True,
+                    timeout=10.0,
+                )
                 
-        except Exception as e:
-            logger.debug(f"[{self.PLATFORM_NAME}] Promo fetch failed: {e}")
+                if response.status_code == 200 and not self._is_not_found(response.text):
+                    html = response.text
+                    promos = self._parse_promo_codes(merchant, html, url)
+                    if promos:
+                        return promos
+                        
+            except Exception as e:
+                logger.debug(f"[Honey] Promo fetch failed: {e}")
         
         return promos
     
