@@ -1,0 +1,33 @@
+sequenceDiagram
+    actor AdminUser
+    participant Frontend as Frontend_NiceGUI
+    participant API as Intelligence_API_Server
+    participant Intel as RetailerIntelligence
+    participant DB as RetailerDatabase
+    participant SQL as SQLite_DB
+
+    AdminUser->>Frontend: Navigate to /admin
+    Frontend->>Frontend: create_admin()
+    Frontend->>Frontend: is_admin() check via AppState.users_db
+    Frontend->>API: HTTP GET /api/v1/intelligence/stats
+    API->>Intel: get_stats()
+    Intel->>DB: get_stats()
+    DB->>SQL: SELECT counts and aggregates
+    SQL-->>DB: stats_rows
+    DB-->>Intel: stats_dict
+    Intel-->>API: stats
+
+    API->>Intel: get_top_retailers(10)
+    Intel->>DB: get_top_retailers(limit=10)
+    DB->>SQL: JOIN retailers, scrape_history, cashback_offers
+    SQL-->>DB: aggregated_rows
+    DB-->>Intel: top_retailers_list
+
+    API->>Intel: get_platform_status()
+    Intel->>DB: get_platform_status()
+    DB->>SQL: SELECT platform stats from scrape_history
+    SQL-->>DB: platform_rows
+    DB-->>Intel: platform_status_list
+
+    API-->>Frontend: JSON {available, stats, top_retailers, platform_status}
+    Frontend->>Frontend: render stats cards, tables, platform status
