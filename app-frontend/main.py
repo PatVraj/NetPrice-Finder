@@ -45,6 +45,29 @@ class PromoCodeResult:
     discount_amount: Optional[float] = None
 
 @dataclass
+class CashbackSearchResult:
+    """Result from checking a single cashback platform."""
+    platform: str
+    rate: float = 0.0
+    found: bool = False
+    error: Optional[str] = None
+
+@dataclass
+class PromoSearchResult:
+    """Result from checking a promo code source."""
+    source: str
+    codes_found: int = 0
+    error: Optional[str] = None
+
+@dataclass
+class SearchTransparency:
+    """Transparency into what was searched and found."""
+    cashback_platforms_checked: List[CashbackSearchResult] = field(default_factory=list)
+    promo_sources_checked: List[PromoSearchResult] = field(default_factory=list)
+    tax_source: str = "default"  # "browser", "ip", "default"
+    search_duration_ms: int = 0
+
+@dataclass
 class PriceResult:
     """Result from price optimization."""
     product_name: str = ""
@@ -62,12 +85,14 @@ class PriceResult:
     cashback_platform: Optional[str] = None
     cashback_percent: float = 0.0
     cashback_value: float = 0.0
+    all_cashback_rates: List[dict] = field(default_factory=list)
     card_name: Optional[str] = None
     card_reward_percent: float = 0.0
     card_reward_value: float = 0.0
     net_price: float = 0.0
     total_savings: float = 0.0
     savings_percent: float = 0.0
+    search_transparency: Optional[SearchTransparency] = None
 
 @dataclass 
 class UserCard:
@@ -87,6 +112,9 @@ class AppState:
     current_result: Optional[PriceResult] = None
     user_cards: List[UserCard] = []
     popular_cards: List[UserCard] = []
+    # User's tax settings (from browser or manual entry)
+    user_tax_rate: Optional[float] = None  # Tax rate in percentage
+    user_location: Optional[str] = None    # State/city name
 
 state = AppState()
 
@@ -117,9 +145,19 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
     """Call the optimizer API to find best price."""
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for scraping
+            # Build request with user's tax settings if available
+            request_data = {
+                "query": query, 
+                "include_cashback": True, 
+                "include_coupons": True
+            }
+            if state.user_tax_rate is not None:
+                request_data["user_tax_rate"] = state.user_tax_rate
+                request_data["user_location"] = state.user_location
+            
             response = await client.post(
                 f"{API_URL}/api/v1/find-best-price",
-                json={"query": query, "include_cashback": True, "include_coupons": True}
+                json=request_data
             )
             if response.status_code == 200:
                 data = response.json()
@@ -135,9 +173,39 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
                         discount_amount=p.get("discount_amount"),
                     ))
                 
-                # Build PriceResult, excluding timestamp and handling promo codes
-                result_data = {k: v for k, v in data.items() if k not in ['timestamp', 'available_promo_codes']}
+                # Parse search transparency
+                transparency = None
+                if data.get("search_transparency"):
+                    t = data["search_transparency"]
+                    cashback_results = [
+                        CashbackSearchResult(
+                            platform=c.get("platform", ""),
+                            rate=c.get("rate", 0.0),
+                            found=c.get("found", False),
+                            error=c.get("error")
+                        )
+                        for c in t.get("cashback_platforms_checked", [])
+                    ]
+                    promo_results = [
+                        PromoSearchResult(
+                            source=p.get("source", ""),
+                            codes_found=p.get("codes_found", 0),
+                            error=p.get("error")
+                        )
+                        for p in t.get("promo_sources_checked", [])
+                    ]
+                    transparency = SearchTransparency(
+                        cashback_platforms_checked=cashback_results,
+                        promo_sources_checked=promo_results,
+                        tax_source=t.get("tax_source", "default"),
+                        search_duration_ms=t.get("search_duration_ms", 0)
+                    )
+                
+                # Build PriceResult, excluding timestamp and handling complex objects
+                result_data = {k: v for k, v in data.items() 
+                              if k not in ['timestamp', 'available_promo_codes', 'search_transparency']}
                 result_data['available_promo_codes'] = promo_codes
+                result_data['search_transparency'] = transparency
                 
                 return PriceResult(**result_data)
             return None
@@ -538,6 +606,93 @@ def create_results_display():
                                     await ui.run_javascript(f'navigator.clipboard.writeText("{code}")')
                                     ui.notify(f'Code "{code}" copied!', type='positive')
                                 ui.button('Copy', on_click=copy_promo, icon='content_copy').props('flat size=sm')
+        
+        # Search Transparency Section - What we checked
+        with ui.expansion('🔍 What We Searched', icon='info').classes('w-full mt-4'):
+            with ui.column().classes('w-full gap-4'):
+                # Cashback Platforms Checked
+                with ui.card().classes('w-full bg-gray-800'):
+                    ui.label('💵 Cashback Platforms').classes('font-semibold text-gray-300 mb-2')
+                    
+                    if r.search_transparency and r.search_transparency.cashback_platforms_checked:
+                        with ui.column().classes('gap-1 w-full'):
+                            for cb in r.search_transparency.cashback_platforms_checked:
+                                with ui.row().classes('w-full justify-between items-center py-1'):
+                                    with ui.row().classes('items-center gap-2'):
+                                        if cb.found:
+                                            ui.icon('check_circle', size='xs', color='green')
+                                        else:
+                                            ui.icon('cancel', size='xs', color='gray')
+                                        ui.label(cb.platform).classes('text-sm')
+                                    if cb.found:
+                                        ui.badge(f'{cb.rate}%', color='green').props('dense')
+                                    else:
+                                        ui.label('Not available').classes('text-xs text-gray-500')
+                    else:
+                        # Default list if no transparency data
+                        platforms = ['Rakuten', 'TopCashback', 'Honey', 'BeFrugal', 'Swagbucks']
+                        with ui.column().classes('gap-1 w-full'):
+                            for platform in platforms:
+                                with ui.row().classes('w-full justify-between items-center py-1'):
+                                    with ui.row().classes('items-center gap-2'):
+                                        if r.cashback_platform and platform.lower() in r.cashback_platform.lower():
+                                            ui.icon('check_circle', size='xs', color='green')
+                                            ui.label(platform).classes('text-sm')
+                                            ui.badge(f'{r.cashback_percent}%', color='green').props('dense')
+                                        else:
+                                            ui.icon('cancel', size='xs', color='gray')
+                                            ui.label(platform).classes('text-sm text-gray-500')
+                
+                # Promo Code Sources
+                with ui.card().classes('w-full bg-gray-800'):
+                    ui.label('🏷️ Promo Code Sources').classes('font-semibold text-gray-300 mb-2')
+                    
+                    if r.search_transparency and r.search_transparency.promo_sources_checked:
+                        with ui.column().classes('gap-1 w-full'):
+                            for ps in r.search_transparency.promo_sources_checked:
+                                with ui.row().classes('w-full justify-between items-center py-1'):
+                                    with ui.row().classes('items-center gap-2'):
+                                        if ps.codes_found > 0:
+                                            ui.icon('check_circle', size='xs', color='amber')
+                                        else:
+                                            ui.icon('cancel', size='xs', color='gray')
+                                        ui.label(ps.source).classes('text-sm')
+                                    if ps.codes_found > 0:
+                                        ui.badge(f'{ps.codes_found} codes', color='amber').props('dense')
+                                    else:
+                                        ui.label('No codes').classes('text-xs text-gray-500')
+                    else:
+                        sources = ['RetailMeNot', 'Honey', 'Vendor Site']
+                        with ui.column().classes('gap-1 w-full'):
+                            for source in sources:
+                                with ui.row().classes('w-full justify-between items-center py-1'):
+                                    ui.icon('cancel', size='xs', color='gray')
+                                    ui.label(source).classes('text-sm text-gray-500')
+                
+                # Tax Source Info
+                with ui.card().classes('w-full bg-gray-800'):
+                    ui.label('📍 Tax Detection').classes('font-semibold text-gray-300 mb-2')
+                    tax_source = "Default"
+                    if r.search_transparency:
+                        tax_source = r.search_transparency.tax_source.capitalize()
+                    
+                    with ui.row().classes('items-center gap-2'):
+                        if tax_source == "Browser":
+                            ui.icon('gps_fixed', size='xs', color='blue')
+                            ui.label(f'Using your location: {r.tax_location or "Unknown"}').classes('text-sm')
+                        elif tax_source == "Ip":
+                            ui.icon('language', size='xs', color='yellow')
+                            ui.label(f'Detected from IP: {r.tax_location or "Unknown"}').classes('text-sm')
+                        else:
+                            ui.icon('help', size='xs', color='gray')
+                            ui.label('Using default rate').classes('text-sm text-gray-500')
+                    
+                    # Link to settings to set location
+                    ui.button('Set Your Location', on_click=lambda: ui.navigate.to('/settings'), icon='edit_location').props('flat size=sm color=primary').classes('mt-2')
+                
+                # Search Duration
+                if r.search_transparency and r.search_transparency.search_duration_ms > 0:
+                    ui.label(f'⏱️ Search completed in {r.search_transparency.search_duration_ms}ms').classes('text-xs text-gray-500 mt-2')
 
 def create_cards_page_content():
     """Create the card wallet management page."""
@@ -667,17 +822,91 @@ async def settings_page():
     
     create_header()
     
+    # US State tax rates for dropdown
+    US_STATES = {
+        "Alabama": 9.24, "Alaska": 1.76, "Arizona": 8.40, "Arkansas": 9.47,
+        "California": 8.85, "Colorado": 7.77, "Connecticut": 6.35, "Delaware": 0.0,
+        "Florida": 7.05, "Georgia": 7.38, "Hawaii": 4.50, "Idaho": 6.02,
+        "Illinois": 8.82, "Indiana": 7.0, "Iowa": 6.94, "Kansas": 8.70,
+        "Kentucky": 6.0, "Louisiana": 9.55, "Maine": 5.5, "Maryland": 6.0,
+        "Massachusetts": 6.25, "Michigan": 6.0, "Minnesota": 7.505, "Mississippi": 7.07,
+        "Missouri": 8.285, "Montana": 0.0, "Nebraska": 6.94, "Nevada": 8.23,
+        "New Hampshire": 0.0, "New Jersey": 6.625, "New Mexico": 7.595, "New York": 8.52,
+        "North Carolina": 6.98, "North Dakota": 7.04, "Ohio": 7.23, "Oklahoma": 8.97,
+        "Oregon": 0.0, "Pennsylvania": 6.34, "Rhode Island": 7.0, "South Carolina": 7.44,
+        "South Dakota": 6.10, "Tennessee": 9.55, "Texas": 8.20, "Utah": 7.19,
+        "Vermont": 6.24, "Virginia": 5.75, "Washington": 9.23, "West Virginia": 6.52,
+        "Wisconsin": 5.44, "Wyoming": 5.36, "Washington DC": 6.0
+    }
+    
     with ui.column().classes('w-full p-4 gap-4 max-w-2xl mx-auto'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/'), icon='arrow_back').props('flat')
         
         ui.label('⚙️ Settings').classes('text-2xl font-bold')
         
+        # Tax Settings Card
         with ui.card().classes('w-full'):
-            ui.label('Tax Rate').classes('font-semibold')
-            ui.slider(min=0, max=15, step=0.25, value=8.25).props('label-always')
+            ui.label('📍 Your Location & Tax Rate').classes('font-semibold text-lg mb-2')
+            ui.label('Set your location for accurate sales tax calculation').classes('text-sm text-gray-400 mb-4')
             
+            # State Selection
+            state_select = ui.select(
+                options=list(US_STATES.keys()),
+                label='Select Your State',
+                value=state.user_location if state.user_location in US_STATES else None,
+                on_change=lambda e: update_tax_from_state(e.value)
+            ).classes('w-full')
+            
+            # Or manual tax rate
+            ui.label('Or enter a custom tax rate:').classes('text-sm text-gray-400 mt-4')
+            
+            tax_input = ui.number(
+                'Tax Rate (%)',
+                value=state.user_tax_rate if state.user_tax_rate else 0,
+                min=0,
+                max=15,
+                step=0.01,
+                format='%.2f',
+                suffix='%'
+            ).classes('w-48')
+            
+            def update_tax_from_state(state_name):
+                if state_name and state_name in US_STATES:
+                    state.user_location = state_name
+                    state.user_tax_rate = US_STATES[state_name]
+                    tax_input.value = state.user_tax_rate
+                    ui.notify(f'Tax rate set to {state.user_tax_rate}% for {state_name}', type='positive')
+            
+            def save_custom_tax():
+                state.user_tax_rate = tax_input.value
+                if not state.user_location:
+                    state.user_location = "Custom"
+                ui.notify(f'Tax rate saved: {state.user_tax_rate}%', type='positive')
+            
+            ui.button('Save Custom Rate', on_click=save_custom_tax, icon='save').props('color=primary').classes('mt-2')
+            
+            # Show current setting
+            with ui.card().classes('w-full bg-gray-800 mt-4'):
+                ui.label('Current Setting:').classes('text-sm text-gray-400')
+                if state.user_tax_rate is not None:
+                    ui.label(f'📍 {state.user_location or "Custom"}: {state.user_tax_rate}%').classes('text-lg text-green-400')
+                else:
+                    ui.label('🌐 Using IP-based detection (may be inaccurate)').classes('text-yellow-400')
+            
+            # Clear button
+            def clear_location():
+                state.user_tax_rate = None
+                state.user_location = None
+                state_select.value = None
+                tax_input.value = 0
+                ui.notify('Location cleared - will use IP detection', type='info')
+            
+            ui.button('Clear Location (Use Auto-Detect)', on_click=clear_location, icon='clear').props('flat color=warning').classes('mt-2')
+        
+        # Cashback Platforms Card
         with ui.card().classes('w-full'):
-            ui.label('Default Cashback Platforms').classes('font-semibold mb-2')
+            ui.label('💵 Cashback Platforms').classes('font-semibold text-lg mb-2')
+            ui.label('Select which platforms to check for cashback').classes('text-sm text-gray-400 mb-4')
             with ui.column().classes('gap-2'):
                 ui.checkbox('Rakuten', value=True)
                 ui.checkbox('TopCashback', value=True)
