@@ -11,7 +11,13 @@
 **Status:** 🔄 In Progress  
 **Started:** 2026-01-04  
 **Target Completion:** 2026-01-20  
-**Last Updated:** 2026-01-04
+**Last Updated:** 2026-01-06
+
+### 🔄 Active Branch: `feature/v0.8-bugfixes`
+
+| Commit | Date | Description |
+|--------|------|-------------|
+| `0364149` | 2026-01-06 | Fix `user_tax_rate` AttributeError - Updated User class and find_best_price() |
 
 ---
 
@@ -165,15 +171,15 @@ Currently the app only finds cashback for the URL the user pastes. It doesn't se
 
 | Bug | Severity | File | Status |
 |-----|----------|------|--------|
-| `'AppState' object has no attribute 'user_tax_rate'` | 🔴 Critical | `main.py` | ⬜ |
+| `'AppState' object has no attribute 'user_tax_rate'` | 🔴 Critical | `main.py` | ✅ Fixed (`0364149`) |
 | Need comprehensive error handling review | 🔴 Critical | Multiple | ⬜ |
 
 **QA Tasks:**
 
 | Task | Status | Priority | Notes |
 |------|--------|----------|-------|
-| Fix `user_tax_rate` AttributeError | ⬜ | 🔴 Critical | Add missing attribute |
-| Review all AppState attributes | ⬜ | 🔴 Critical | Ensure all used attrs exist |
+| Fix `user_tax_rate` AttributeError | ✅ | 🔴 Critical | User class + find_best_price() fixed |
+| Review all AppState attributes | ✅ | 🔴 Critical | No other broken refs found |
 | Add input validation across all forms | ⬜ | 🔴 Critical | Prevent invalid data |
 | Create end-to-end test for product search | ⬜ | 🔴 Critical | Full flow test |
 | Add API error handling tests | ⬜ | 🔴 Critical | Handle API failures gracefully |
