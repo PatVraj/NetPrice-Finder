@@ -45,13 +45,13 @@ git commit -m "[phase-X] Brief description" -m "- Detailed change 1" -m "- Detai
 git log -1 --format="%h"
 ```
 
-### Step 5: NOW Update ROADMAP.md and README.md
+### Step 5: NOW Update ROADMAP.md, CHANGELOG.md, and README.md
 Only after the commit is made, update the documentation with the actual commit hash.
 
 ### Step 6: Commit Documentation Updates
 ```bash
-git add ROADMAP.md README.md
-git commit -m "[docs] Update roadmap and readme with changes"
+git add ROADMAP.md CHANGELOG.md README.md
+git commit -m "[docs] Update roadmap and changelog with changes"
 ```
 
 ---
@@ -66,9 +66,10 @@ git commit -m "[docs] Update roadmap and readme with changes"
 5. Run: git commit -m "[phase-X] Description"
 6. Run: git log -1 --format="%h" (get commit hash)
 7. Update ROADMAP.md with commit hash and changes
-8. Update README.md if structure changed
-9. Run: git add ROADMAP.md README.md
-10. Run: git commit -m "[docs] Update roadmap"
+8. Update CHANGELOG.md with session details (files, changes, features)
+9. Update README.md if structure changed
+10. Run: git add ROADMAP.md CHANGELOG.md README.md
+11. Run: git commit -m "[docs] Update roadmap and changelog"
 ```
 
 ---
@@ -99,12 +100,33 @@ git stash pop
    - Commit-level details of what changed (use actual commit hash)
    - Update task status (⬜ → ✅)
 
-2. **Review README.md** for:
+2. **Update CHANGELOG.md** when:
+   - Any task is marked complete (⬜ → ✅) in ROADMAP.md
+   - Any bug is fixed
+   - Any feature is implemented
+   - A version/milestone is completed
+   
+   CHANGELOG.md format:
+   ```markdown
+   #### Session: YYYY-MM-DD – Description
+   
+   **Files Created:**
+   - `path/to/file.py` – Description of purpose
+   
+   **Files Modified:**
+   - `path/to/file.py` – What changed
+   
+   **Key Changes:**
+   1. Brief description of change 1
+   2. Brief description of change 2
+   ```
+
+3. **Review README.md** for:
    - Any structural changes that need documentation
    - New dependencies or setup steps
    - Updated project structure if files were added/removed
 
-3. **Commit Message Format:**
+4. **Commit Message Format:**
    ```
    [phase-X] Brief description
    
@@ -157,6 +179,38 @@ When completing tasks in ROADMAP.md:
 # After  
 | Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical |
 ```
+
+---
+
+## 📝 CHANGELOG.md Update Format
+
+When any task is completed or bug is fixed, add a session entry to CHANGELOG.md under the current version:
+
+### Session Entry Format
+```markdown
+#### Session: YYYY-MM-DD – Brief Description of Work
+
+**Files Created:**
+- `path/to/new/file.py` – Purpose of the file
+
+**Files Modified:**
+- `path/to/modified/file.py` – What was changed
+
+**Key Changes:**
+1. Concise description of major change 1
+2. Concise description of major change 2
+
+**Bugs Fixed:**
+- Bug description → Fix applied
+```
+
+### When to Update CHANGELOG.md
+- ✅ After fixing any bug
+- ✅ After implementing any feature
+- ✅ After adding test suites
+- ✅ After any code review fixes
+- ✅ When marking tasks complete in ROADMAP.md
+- ❌ Do NOT update for documentation-only changes (ROADMAP/README updates)
 
 ---
 

@@ -1,12 +1,12 @@
-# SSIP Roadmap & Changelog
+# SSIP Roadmap
 
-> **Version Tracking, Change History, and Future Planning**
+> **Current Work & Future Planning**
 > 
-> **Structure:** Version (high-level) → Branch (feature work) → Commit (atomic changes)
+> For detailed version history and change logs, see [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
-## 📌 Current Version: `v0.7.0` – Data Persistence & User Experience
+## 📌 Current Version: `v0.8.0` – Cross-Retailer Comparison, QA & UX Polish
 
 **Status:** ✅ Complete  
 **Started:** 2026-01-03  
@@ -216,605 +216,256 @@ price_history (id, product_id, price, net_price, best_cashback_rate, recorded_at
 
 ---
 
-## 🏷️ v0.2.0 – Core Infrastructure
-**Status:** 🔄 In Progress  
-**Started:** 2026-01-03  
-**Target Completion:** 2026-01-06
-
-### Branch: `feature/docker-infrastructure`
-**Created:** 2026-01-03  
-**Merged:** Open  
-**Purpose:** Initial project setup and Docker infrastructure
-
-#### Commits:
-
-| Commit | Date | Files Changed | Description |
-|--------|------|---------------|-------------|
-| `35f48e0` | 2026-01-03 | 18 files | Complete Docker infrastructure skeleton |
-| `70f7524` | 2026-01-03 | 2 files | Documentation update with commit tracking |
-| `2e68031` | 2026-01-03 | 5 files | Fix Docker infrastructure issues |
-
-#### Session: 2026-01-03 (Latest)
-
-**Test Runthrough Results:**
-- ✅ Docker GPU access verified (nvidia-smi in container)
-- ✅ All 6 services running and healthy
-- ✅ NiceGUI frontend accessible at http://localhost:8080
-- ✅ Ollama LLM loaded with Llama 3.1:8b model
-- ✅ Playwright scraper with stealth patches operational
-- ✅ Redis, MariaDB, Firefly III all healthy
-
-**Files Created:**
-- `docker-compose.yml` – Complete Docker Compose with 6 services and GPU passthrough
-- `.env.example` – Environment configuration template with secure defaults
-- `.gitignore` – Git ignore patterns for the project
-- `app-frontend/Dockerfile` – NiceGUI container configuration
-- `app-frontend/requirements.txt` – Python dependencies for frontend
-- `app-frontend/main.py` – NiceGUI dashboard with command bar & visual debugger
-- `scraper-engine/Dockerfile` – Playwright + Xvfb + GPU container
-- `scraper-engine/requirements.txt` – Python dependencies for scraper
-- `scraper-engine/run_scraper.py` – FastAPI scraper with real-time streaming
-- `scraper-engine/start.sh` – Xvfb startup script for headful browser
-- `intelligence-core/prompts/router.yaml` – LLM tool definitions
-- `intelligence-core/tools/router.py` – Semantic router with function calling
-- `scripts/start.sh` – Linux/Mac quick start script
-- `scripts/start.ps1` – Windows PowerShell quick start script
-- `configs/.gitkeep` – Placeholder for configuration files
-- `.github/copilot-instructions.md` – Git workflow automation for Copilot
-
-**Files Modified:**
-- `README.md` – Updated with full project documentation and structure
+| Commit | Date | Description |
+|--------|------|-------------|
+| `0364149` | 2026-01-06 | Fix `user_tax_rate` AttributeError - Updated User class and find_best_price() |
+| `6aaba8c` | 2026-01-06 | Bug fixes and test suites for v0.8.0 QA |
 
 ---
 
-### Tasks for v0.2.0
+## 🎯 Current Sprint: v0.8.0
 
-| Task | Status | Priority | Branch |
-|------|--------|----------|--------|
-| Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Verify `nvidia-smi` inside Docker container | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Set up NiceGUI Hello World on port 8080 | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Create `.env.example` template | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
-| Configure Docker network isolation | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
-| Create app-frontend Dockerfile | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Create scraper-engine Dockerfile | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Create intelligence-core router | ✅ | 🟡 Medium | `feature/docker-infrastructure` |
-| Create startup scripts | ✅ | 🟢 Low | `feature/docker-infrastructure` |
-| Pull Llama 3.1:8b model for Ollama | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
-| Fix playwright-stealth v2.0 API compatibility | ✅ | 🔴 Critical | `feature/docker-infrastructure` |
+### Overview
 
-**Milestone:** ✅ Docker stack running with GPU access confirmed
+This release focuses on five major improvements identified during QA review:
+
+1. **Cross-Retailer Price Comparison** – Find same product across multiple retailers to get true best price
+2. **UI/UX Polish** – Fix visual inconsistencies and align with modern design standards
+3. **User Settings Enhancements** – Account management, location detection, password reset
+4. **Card Page Improvements** – Better card discovery, search, and professional card images
+5. **Bug Fixes & Test Coverage** – Fix existing bugs and add comprehensive test cases
 
 ---
 
-## 🏷️ v0.1.0-alpha – Project Initialization
-**Status:** ✅ Completed  
-**Date:** 2026-01-03
+### 🎯 Feature 1: Cross-Retailer Price Comparison
 
-### Branch: `main`
-**Purpose:** Initial repository setup
+**Problem:**  
+Currently the app only finds cashback for the URL the user pastes. It doesn't search for the same product on other retailers where it might be cheaper even after cashback.
 
-#### Commits:
+**Example Scenario:**
+- User pastes: Pandora ring on pandora.net for $95
+- Same ring on Macy's: $85 with 10% cashback = $76.50 net price
+- **User should see both options and pick the true cheapest**
 
-| Commit | Date | Files Changed | Description |
-|--------|------|---------------|-------------|
-| `initial` | 2026-01-03 | `LICENSE`, `README.md`, `research.txt` | Repository initialization |
+**Research Required:**
+- [ ] Evaluate Google Shopping API (paid) vs open-source alternatives
+- [ ] Research product matching algorithms (SKU, title similarity, image matching)
+- [ ] Investigate free product search APIs (Google Shopping, PriceGrabber, etc.)
+- [ ] Evaluate web scraping approach for major retailers
 
-#### Summary
-- Established project foundation
-- Added architectural specification (research.txt)
-- Created initial README
+**Implementation Tasks:**
 
----
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Research product discovery APIs/tools | ⬜ | 🔴 Critical | Google Shopping, PriceGrabber, Shopzilla |
+| Design cross-retailer search architecture | ⬜ | 🔴 Critical | How to match same product across sites |
+| Build product identifier extraction | ⬜ | 🔴 Critical | Extract SKU, UPC, brand, model from URL |
+| Implement multi-retailer search | ⬜ | 🔴 Critical | Query other retailers for same product |
+| Build price comparison aggregator | ⬜ | 🟡 Medium | Combine product + cashback data |
+| Create comparison results UI | ⬜ | 🟡 Medium | Show all retailer options sorted by net price |
+| Cache product mappings in SQLite | ⬜ | 🟢 Low | Avoid re-searching known products |
 
-## 🗺️ Development Phases
-
-### Phase 1: The "Skeleton" 🦴
-**Target:** v0.2.0 | **Status:** ✅ Complete
-
-| Task | Status | Priority |
-|------|--------|----------|
-| Create `docker-compose.yml` with GPU passthrough | ✅ | 🔴 Critical |
-| Verify `nvidia-smi` inside Docker container | ⬜ | 🔴 Critical |
-| Set up NiceGUI Hello World on port 8080 | ✅ | 🔴 Critical |
-| Create `.env.example` template | ✅ | 🟡 Medium |
-| Configure Docker network isolation | ✅ | 🟡 Medium |
-
-**Milestone:** Docker stack running with GPU access confirmed
-
----
-
-### Phase 2: The "Eyes" 👁️
-**Target:** v0.3.0 | **Status:** ✅ Complete
-
-| Task | Status | Priority |
-|------|--------|----------|
-| Create `scraper-engine/Dockerfile` with Xvfb | ✅ | 🔴 Critical |
-| Implement Playwright with stealth patches | ✅ | 🔴 Critical |
-| Build screencast pipeline (Screenshot → Base64 → Redis) | ✅ | 🔴 Critical |
-| Integrate `ui.interactive_image` in NiceGUI | ✅ | 🔴 Critical |
-| Implement click-relay from UI to Playwright | ✅ | 🟡 Medium |
-| Test end-to-end visual debugging | ✅ | 🔴 Critical |
-
-**Milestone:** ✅ Type URL in UI and watch browser load in dashboard
+**Potential Tools/APIs to Evaluate:**
+- Google Shopping API (paid, but most comprehensive)
+- SerpAPI (Google Shopping scraper, paid)
+- Open source: Scrapy, BeautifulSoup for retailer scraping
+- Product matching: Fuzzy string matching, image similarity APIs
 
 ---
 
-### Phase 3: The "Brain" & "Memory" 🧠
-**Target:** v0.4.0 | **Status:** ✅ Complete
+### 🎯 Feature 2: UI/UX Design Polish
 
-| Task | Status | Priority |
-|------|--------|----------|
-| Deploy Ollama container with Llama 3 | ✅ | 🔴 Critical |
-| Create semantic router function calling | ✅ | 🔴 Critical |
-| Deploy Firefly III + MariaDB | ✅ | 🔴 Critical |
-| Expose Firefly III on port 8081 | ✅ | 🟡 Medium |
-| Generate Firefly API token | ✅ | 🟡 Medium |
-| Build Python wrapper for Firefly API | ✅ | 🟡 Medium |
-| Implement intent classification prompts | ✅ | 🟡 Medium |
+**Problems Identified:**
+- Divs not properly aligned
+- Navbar scroll reveals inconsistent backgrounds (green gradient → random rectangle → black)
+- Overall design lacks cohesion
 
-**Milestone:** ✅ User query routes correctly to scraper or ledger
+**Research Required:**
+- [ ] Review modern SaaS dashboard design patterns
+- [ ] Study NiceGUI layout best practices
+- [ ] Evaluate Tailwind CSS patterns for consistent spacing
 
----
+**Implementation Tasks:**
 
-### Phase 4: "Sovereign" Features 👑
-**Target:** v0.5.0 | **Status:** ✅ Complete
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Audit all pages for visual inconsistencies | ⬜ | 🔴 Critical | Document all issues |
+| Fix navbar background consistency | ⬜ | 🔴 Critical | Solid/blur background on scroll |
+| Align all div elements properly | ⬜ | 🔴 Critical | Consistent padding/margins |
+| Create unified color scheme | ⬜ | 🟡 Medium | Define and apply design tokens |
+| Fix page background layering | ⬜ | 🔴 Critical | Remove random rectangles |
+| Implement consistent card styling | ⬜ | 🟡 Medium | Shadow, border-radius, padding |
+| Add smooth scroll transitions | ⬜ | 🟢 Low | Polish animations |
+| Mobile responsive review | ⬜ | 🟡 Medium | Test all breakpoints |
 
-| Task | Status | Priority |
-|------|--------|----------|
-| Implement Vision Parser for PDF statements | ✅ | 🔴 Critical |
-| Build MCC enrichment pipeline | ✅ | 🟡 Medium |
-| Create Credit Card Reward Schema system | ✅ | 🟡 Medium |
-| Build Net Price Optimizer | ✅ | 🔴 Critical |
-| Implement Cashback Monitor scraper | ✅ | 🟡 Medium |
-| Clarify credit card rewards are OPTIONAL | ✅ | 🟡 Medium |
-
-**Milestone:** ✅ Full sovereign financial intelligence operational
-
----
-
-### Phase 5: Frontend Integration 🖥️
-**Target:** v0.6.0 | **Status:** ✅ Complete
-
-| Task | Status | Priority |
-|------|--------|----------|
-| Create FastAPI server for optimizer | ✅ | 🔴 Critical |
-| Build price optimization endpoints | ✅ | 🔴 Critical |
-| Create card wallet management API | ✅ | 🟡 Medium |
-| Redesign NiceGUI frontend | ✅ | 🔴 Critical |
-| Implement search hero component | ✅ | 🟡 Medium |
-| Build results display page | ✅ | 🔴 Critical |
-| Create card wallet management UI | ✅ | 🟡 Medium |
-| Add quick calculator widget | ✅ | 🟢 Low |
-
-**Milestone:** ✅ User can paste a link and see net price breakdown
+**Design Standards to Follow:**
+- Consistent 8px spacing grid
+- Max content width container
+- Unified shadow/elevation system
+- Consistent border-radius (8px cards, 4px inputs)
 
 ---
 
-### Phase 6: Testing & Documentation 📚
-**Target:** v0.6.0 | **Status:** ✅ Complete
+### 🎯 Feature 3: User Settings Enhancements
 
-| Task | Status | Priority |
-|------|--------|----------|
-| Create pytest test suite for optimizer | ✅ | 🔴 Critical |
-| Create tests for credit card rewards | ✅ | 🔴 Critical |
-| Create tests for API endpoints | ✅ | 🔴 Critical |
-| Write comprehensive API documentation | ✅ | 🟡 Medium |
-| Write features/user guide documentation | ✅ | 🟡 Medium |
-| Verify tests run in Docker containers | ✅ | 🟡 Medium |
+**Problems Identified:**
+- No account deletion option
+- No "forgot password" flow
+- Location detection only gets state, not city (city tax rates differ)
+- Need proper location consent flow
 
-**Milestone:** ✅ 70+ test cases and full API/features documentation
+**Implementation Tasks:**
 
----
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Add "Delete Account" with confirmation | ⬜ | 🔴 Critical | GDPR-like data deletion |
+| Implement "Forgot Password" email flow | ⬜ | 🔴 Critical | Password reset tokens |
+| Enhance location detection (city + state) | ⬜ | 🔴 Critical | More accurate tax calculation |
+| Add location consent popup | ⬜ | 🔴 Critical | Cookie/location permission UX |
+| Allow manual address entry | ⬜ | 🟡 Medium | For users who deny location |
+| Lookup city-level tax rates | ⬜ | 🟡 Medium | Integrate tax API with city granularity |
+| Add email verification | ⬜ | 🟢 Low | Verify email on registration |
+| Session management (view active sessions) | ⬜ | 🟢 Low | Security feature |
 
-### Phase 7: Data Persistence & User Experience 💾
-**Target:** v0.7.0 | **Status:** 🔄 In Progress
+**Location Detection Approach:**
+1. Show cookie/location consent popup on first visit
+2. If allowed, use IP geolocation for city + state
+3. If denied, prompt for manual address entry (zip code → city lookup)
+4. Store and use for accurate tax calculation
 
-| Task | Status | Priority |
-|------|--------|----------|
-| SQLite database for user accounts | ✅ | 🔴 Critical |
-| Persist card wallet per user | ✅ | 🔴 Critical |
-| Search history storage | ✅ | 🟡 Medium |
-| Price tracking over time | ⬜ | 🟡 Medium |
-| Integrate RetailerIntelligence with frontend | ⬜ | 🟡 Medium |
-| User settings persistence (tax rate, location) | ✅ | 🟢 Low |
-
-**Milestone:** User data persists across container restarts
-
----
-
-### Branch: `feature/phase4-sovereign-features`
-**Created:** 2026-01-04  
-**Merged:** Open  
-**Purpose:** Net Price Finder - find TRUE cheapest price after all savings stack
-
-#### Commits:
-
-| Commit | Date | Files Changed | Description |
-|--------|------|---------------|-------------|
-| `85d51e7` | 2026-01-04 | 8 files | Fix false positive cashback + auto tax detection |
-| `bbf7279` | 2026-01-04 | 3 files | Vision Parser for PDFs + MCC enrichment |
-| `8e5c8d6` | 2026-01-04 | 4 files | Credit Card Reward Schema + Cashback Monitor |
-| `43c97c2` | 2026-01-04 | 4 files | Net Price Optimizer - core intelligence |
-| `19d8ff0` | 2026-01-04 | 1 file | Clarify credit card rewards are optional |
-| `642c106` | 2026-01-04 | 1 file | Update roadmap with Phase 4 details |
-| `866c0d2` | 2026-01-03 | 3 files | Frontend integration with Net Price Optimizer |
-| `4ade820` | 2026-01-03 | 6 files | Comprehensive test suite and API documentation |
-
-#### Files Created (Phase 4):
-- `intelligence-core/vision/parser.py` – PDF/receipt parsing with LLaVA
-- `intelligence-core/vision/__init__.py` – Module exports
-- `intelligence-core/rewards/schema.py` – Credit card reward optimization
-- `intelligence-core/rewards/__init__.py` – Module exports
-- `intelligence-core/cashback/monitor.py` – Multi-platform cashback scraping
-- `intelligence-core/cashback/__init__.py` – Module exports
-- `intelligence-core/optimizer/net_price.py` – Net Price Optimizer (core)
-- `intelligence-core/optimizer/__init__.py` – Module exports
-- `intelligence-core/tax/location.py` – Auto tax detection via IP geolocation
-- `intelligence-core/tax/__init__.py` – Module exports
-
-#### Files Created (Phase 5 - Frontend Integration):
-- `intelligence-core/api/server.py` – FastAPI server for optimizer endpoints
-- `intelligence-core/api/__init__.py` – Module exports
-
-#### Files Modified (Phase 5):
-- `app-frontend/main.py` – Complete rewrite with Net Price Finder UI
-- `intelligence-core/optimizer/__init__.py` – Module exports
-
-#### Files Created (Phase 6 - Testing & Documentation):
-- `intelligence-core/tests/__init__.py` – Test suite initialization
-- `intelligence-core/tests/test_net_price.py` – 25+ test cases for optimizer
-- `intelligence-core/tests/test_rewards.py` – 20+ test cases for card rewards
-- `intelligence-core/tests/test_api.py` – 25+ test cases for API endpoints
-- `docs/API.md` – Comprehensive API endpoint documentation
-- `docs/FEATURES.md` – User guide and architecture documentation
-
-#### Key Design Decisions:
-1. **Credit card rewards are OPTIONAL** – Only user's actual cards are used
-2. **Cashback stacking** – Compares 5 platforms: Rakuten, Honey, TopCashback, BeFrugal, Swagbucks
-3. **Coupon finding** – Scrapes coupons from RetailMeNot, Honey, vendor sites
-4. **Net price calculation** – Product - Coupon + Tax - Cashback - Card Rewards = TRUE cost
-
-#### Session: 2026-01-04 – Cashback Verification & Tax Detection
-
-**Issues Fixed:**
-- 🐛 TopCashback scraper returning false positives (2% for non-existent merchants)
-- 🐛 Hardcoded cashback rates removed in favor of live scraping
-- ✨ Added auto tax detection based on user's IP location
-
-**Changes Made:**
-1. **TopCashback Scraper Rewrite:**
-   - Uses search API (`/ajax/merchant/search`) for reliable data
-   - Added `_is_merchant_match()` to verify merchant name matches
-   - Added `_is_valid_merchant_page()` to detect 404/error pages
-   - Confidence scores: 0.95 (API) vs 0.85 (page scrape)
-   - Removed browser fallback that caused false positives
-
-2. **Auto Tax Detection:**
-   - Created `intelligence-core/tax/location.py` with `TaxCalculator`
-   - IP geolocation via ip-api.com (free, no API key)
-   - Complete US state sales tax database (50 states + DC)
-   - 24-hour location caching to reduce API calls
-   - Returns location-aware tax rate in API response
-
-3. **Frontend Updates:**
-   - Added `product_name` display from LLM extraction
-   - Shows tax as "Tax (California) @ 8.85%"
-   - Improved progress feedback during optimization
-
-**Files Modified:**
-- `intelligence-core/cashback/monitor.py` – Rewrote TopCashback scraper
-- `intelligence-core/api/server.py` – Added tax detection to API
-- `app-frontend/main.py` – Added tax location display
+**Tax Rate Sources:**
+- Consider TaxJar API, Avalara, or open tax databases
+- Need city-level granularity (e.g., NYC vs Buffalo have different rates)
 
 ---
 
-#### Session: 2026-01-04 – Retailer Intelligence System
+### 🎯 Feature 4: Card Page Improvements
 
-**Commit:** `1290131`  
-**Feature:** Persistent caching system for major retailers with intelligent savings strategies
+**Problems Identified:**
+- Only 6 cards displayed
+- No search functionality
+- No professional card images
+- Poor card discovery UX
 
-**Design Document:** `docs/RETAILER_INTELLIGENCE_DESIGN.md`
+**Implementation Tasks:**
 
-**Problem Solved:**
-- 🐛 Re-scraping cashback rates every search was inefficient
-- 🐛 No persistent storage for promo codes with context
-- 🐛 Only keeping "best" offer lost stacking opportunities (e.g., PayPal + CC combo)
-- ✨ Added intelligent strategy calculation with stacking rules
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Research credit card image APIs/sources | ⬜ | 🔴 Critical | Legal, high-quality card images |
+| Add card search functionality | ⬜ | 🔴 Critical | Filter by name, issuer, rewards type |
+| Expand card database | ⬜ | 🔴 Critical | Add more popular cards |
+| Create card image gallery | ⬜ | 🟡 Medium | Visual card recognition |
+| Implement infinite scroll/pagination | ⬜ | 🟡 Medium | Handle large card list |
+| Add card categories (travel, cashback, etc.) | ⬜ | 🟡 Medium | Filter by type |
+| Show card benefits summary | ⬜ | 🟢 Low | Sign-up bonus, annual fee |
+| Add "popular cards" section | ⬜ | 🟢 Low | Quick access to common cards |
 
-**Architecture Decisions:**
-1. **Hybrid Storage:** Redis (hot cache) + SQLite (persistent)
-   - Redis: Fast lookups with tier-based TTL (4h/12h/24h)
-   - SQLite: Long-term storage, avoids coupling with Firefly III's MariaDB
-2. **Tier System:** Major retailers (60+) get priority refresh
-3. **Store ALL Offers:** Keep every cashback/promo for intelligent decision-making
-4. **Stacking Rules:** Defined which savings sources can combine
-
-**Files Created:**
-| File | Description |
-|------|-------------|
-| `docs/RETAILER_INTELLIGENCE_DESIGN.md` | Full architecture specification |
-| `intelligence-core/retailer/__init__.py` | Module exports |
-| `intelligence-core/retailer/models.py` | Data classes (Retailer, StoredCashbackOffer, StoredPromoCode, PaymentBonus, SavingsStrategy, etc.) |
-| `intelligence-core/retailer/database.py` | SQLite persistence layer with full CRUD |
-| `intelligence-core/retailer/cache.py` | Redis hot cache with TTL management |
-| `intelligence-core/retailer/strategy.py` | Stacking rules and strategy calculation |
-| `intelligence-core/retailer/intelligence.py` | Main RetailerIntelligence class |
-
-**Files Modified:**
-| File | Changes |
-|------|---------|
-| `intelligence-core/cashback/monitor.py` | Added optional `intelligence` parameter |
-| `intelligence-core/optimizer/net_price.py` | Added optional `intelligence` parameter |
-| `intelligence-core/api/server.py` | Added 5 new endpoints for retailer intelligence |
-| `docker-compose.yml` | Added `RETAILER_DB_PATH` env var and `intelligence_data` volume |
-
-**New API Endpoints:**
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/retailer/{name}/deals` | GET | Get all cached deals for a retailer |
-| `/retailer/{name}/strategy` | GET | Calculate optimal savings strategy |
-| `/retailer/{name}/refresh` | POST | Force refresh retailer data |
-| `/intelligence/stats` | GET | Get cache and database statistics |
-| `/intelligence/stale` | GET | List retailers needing refresh |
-
-**Key Classes:**
-- `RetailerIntelligence` – Main unified interface
-- `RetailerDatabase` – SQLite operations
-- `RetailerCache` – Redis caching
-- `StrategyCalculator` – Stacking rules engine
-
-**Stacking Rules Example:**
-```python
-# Conflicts (can't stack)
-Rakuten ↔ TopCashback ↔ Honey Gold ↔ BeFrugal ↔ Swagbucks
-
-# Can Stack
-Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
-```
+**Card Image Sources to Research:**
+- Card issuer media kits (official assets)
+- Credit card review sites with image APIs
+- Generate stylized card representations (avoid copyright issues)
 
 ---
 
-### Branch: `feature/ongoing-development`
-**Created:** 2026-01-05  
-**Merged:** Open  
-**Purpose:** Cashback scraper improvements and UI transparency fixes
+### 🎯 Feature 5: Bug Fixes & QA Test Coverage
 
-#### Commits:
+**Known Bugs:**
 
-| Commit | Date | Files Changed | Description |
-|--------|------|---------------|-------------|
-| `b5d9675` | 2026-01-05 | 1 file | Add responsive UI design for all screen sizes |
-| `946ba91` | 2026-01-05 | 1 file | Modern UI refactor with auth and admin dashboard |
-| `10fae56` | 2026-01-05 | 9 files | Remove promo code functionality entirely |
-| `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
-| `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
-| `4ca4219` | 2026-01-03 | 2 files | Fix cashback offers transparency in UI |
-| `33fa32e` | 2026-01-03 | 2 files | Fix false positive matching in scrapers |
-| `0697291` | 2026-01-03 | 2 files | Add search page scraping strategy |
-| `c40a561` | 2026-01-03 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
-| `1d78394` | 2026-01-03 | 6 files | Modularize cashback scrapers into package |
+| Bug | Severity | File | Status |
+|-----|----------|------|--------|
+| `'AppState' object has no attribute 'user_tax_rate'` | 🔴 Critical | `main.py` | ✅ Fixed (`0364149`) |
+| `authenticate_user` crashes on null email | 🔴 Critical | `database.py` | ✅ Fixed (`6aaba8c`) |
+| `get_user_by_email` crashes on null email | 🟡 Medium | `database.py` | ✅ Fixed (`6aaba8c`) |
+| `POPULAR_CARDS` iteration fails (factory vs object) | 🔴 Critical | `server.py` | ✅ Fixed (`6aaba8c`) |
+| `CardInfo` allows empty name / negative rate | 🟡 Medium | `server.py` | ✅ Fixed (`6aaba8c`) |
+| `/health` crashes if lifespan not run | 🟡 Medium | `server.py` | ✅ Fixed (`6aaba8c`) |
 
-#### Session: 2026-01-05 – Remove Promo Code Functionality
+**QA Tasks:**
 
-**Commit:** `10fae56`  
-**Analysis:** Promo codes from cashback sites (Rakuten, TopCashback, etc.) are not real promo codes – they are just marketing "deals" that describe sales (e.g., "Up to 40% off select styles"). These provide no actionable value.
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Fix `user_tax_rate` AttributeError | ✅ | 🔴 Critical | User class + find_best_price() fixed |
+| Review all AppState attributes | ✅ | 🔴 Critical | No other broken refs found |
+| Add input validation across all forms | ✅ | 🔴 Critical | `test_input_validation.py` (28 tests) |
+| Add API error handling tests | ✅ | 🔴 Critical | `test_error_handling.py` (36 tests) |
+| Create end-to-end test for product search | 🔜 | 🔴 Critical | *Future work* – requires browser automation |
+| Test unauthenticated user flows | 🔜 | 🟡 Medium | *Future work* – ensure proper redirects |
+| Test admin-only routes | 🔜 | 🟡 Medium | *Future work* – verify access control |
+| Add database constraint tests | 🔜 | 🟡 Medium | *Future work* – foreign keys, unique constraints |
+| Load testing with concurrent users | 🔜 | 🟢 Low | *Future work* – performance under load |
+| Browser compatibility testing | 🔜 | 🟢 Low | *Future work* – Chrome, Firefox, Safari, Edge |
 
-**Changes Made:**
-1. **monitor.py:** Removed `PromoCode` dataclass, `promo_codes` field from `MerchantCashback`, `_safe_scrape_promos()` method, renamed `find_best_cashback_and_promos` to just use `find_best_cashback`
-2. **All 5 scrapers:** Removed `get_promo_codes()` and `_parse_promo_codes()` methods
-3. **net_price.py:** Removed `available_promo_codes` from `OptimizationResult`, removed `_found_promo_codes` tracking
-4. **server.py:** Removed `PromoCodeInfo`, `PromoSearchResult` classes, removed `promo_sources_checked` from `SearchTransparency`, removed `available_promo_codes` from `SavingsResponse`
-5. **main.py (frontend):** Removed `PromoCodeResult`, `PromoSearchResult` dataclasses, removed promo code parsing logic, removed "🎫 Promo Codes Found" UI section, removed "🏷️ Promo Code Sources" transparency section
+**Test Suites Added (2026-01-06):**
 
-**Files Modified:**
-| File | Changes |
-|------|---------|
-| `intelligence-core/cashback/monitor.py` | Removed PromoCode, promo-related methods |
-| `intelligence-core/cashback/scrapers/base.py` | Removed get_promo_codes() |
-| `intelligence-core/cashback/scrapers/rakuten.py` | Removed get_promo_codes(), _parse_promo_codes() |
-| `intelligence-core/cashback/scrapers/topcashback.py` | Removed get_promo_codes(), _parse_promo_codes() |
-| `intelligence-core/cashback/scrapers/honey.py` | Removed get_promo_codes(), _parse_promo_codes() |
-| `intelligence-core/cashback/scrapers/befrugal.py` | Removed get_promo_codes(), _parse_promo_codes() |
-| `intelligence-core/optimizer/net_price.py` | Removed promo code collection/tracking |
-| `intelligence-core/api/server.py` | Removed PromoCodeInfo, promo response fields |
-| `app-frontend/main.py` | Removed promo code UI sections |
+| File | Tests | Passed | Skipped | Coverage |
+|------|-------|--------|---------|----------|
+| `app-frontend/tests/test_input_validation.py` | 28 | 28 | 0 | Email, password, query, tax rate, location, auth |
+| `intelligence-core/tests/test_error_handling.py` | 36 | 27 | 9 | Input validation, malformed requests, wallet, responses |
 
-**Code Removed:** ~700 lines of dead promo code functionality
+*Note: 9 tests skipped because they call endpoints that make real network requests (cashback providers)*
 
-**Note:** The `intelligence-core/retailer/` module still has promo code infrastructure (StoredPromoCode, etc.) but it's not actively used. Left in place for potential future use with verified retailer promo codes.
+**Test Strategy:**
+1. **Core Flow Tests** – Product search, cashback lookup, price optimization
+2. **Auth Tests** – Login, register, logout, session handling
+3. **Database Tests** – CRUD operations, constraints, persistence
+4. **Error Handling** – Graceful degradation when services fail
+5. **Edge Cases** – Empty states, invalid inputs, missing data
 
 ---
 
-#### Session: 2026-01-05 – Responsive UI Design
+### 📊 v0.8.0 Tasks Progress Summary
 
-**Commit:** `b5d9675`  
-**Feature:** Fully responsive design across all screen sizes
+| Feature | Critical | Medium | Low | Total |
+|---------|----------|--------|-----|-------|
+| Cross-Retailer Comparison | 4 | 2 | 1 | 7 |
+| UI/UX Polish | 4 | 3 | 1 | 8 |
+| User Settings | 4 | 2 | 2 | 8 |
+| Card Page | 2 | 4 | 2 | 8 |
+| Bug Fixes & QA | 5 | 3 | 2 | 10 |
+| **Total** | **19** | **14** | **8** | **41** |
 
-**Changes Made:**
-1. **Extended CUSTOM_CSS:**
-   - Added responsive typography with `clamp()` for fluid sizing
-   - Added `.stats-grid` CSS Grid with 1→2→4 column breakpoints
-   - Added `.responsive-container` with max-width breakpoints
-   - Added mobile nav adjustments, card padding, table overflow
-
-2. **Responsive Navbar:**
-   - Fixed positioning at top with z-index
-   - Desktop nav links hidden on mobile (`hidden sm:block`)
-   - Mobile menu items shown in dropdown
-
-3. **Responsive Pages:**
-   - Hero search: `min-h-[calc(100vh-4rem)]`, responsive padding, fluid title
-   - Landing page: Responsive padding, smaller text on mobile
-   - Results page: Responsive padding, `break-words` for long names
-   - Login/Register: Responsive form padding and font sizes
-   - Admin dashboard: CSS Grid for stats, responsive tables
-   - Cards page: 1-2-3 column grid layout based on screen size
-   - Settings page: Responsive padding and spacing
-   - Footer: Centered on mobile, justified on desktop
-
-**Key CSS Patterns Applied:**
-- Padding: `px-4 sm:px-6 py-6 sm:py-8`
-- Font sizes: `text-2xl sm:text-3xl`
-- Card padding: `p-4 sm:p-6`
-- Card widths: `w-full sm:w-56` for grid items
-- Visibility: `hidden sm:block` for desktop-only elements
-
-**Files Modified:**
-| File | Changes |
-|------|---------|
-| `app-frontend/main.py` | 207 insertions, 74 deletions – responsive CSS + component updates |
-
----
-
-#### Session: 2026-01-05 – Modern UI Refactor with Auth
-
-**Commit:** `946ba91`  
-**Feature:** Complete frontend redesign with authentication and admin dashboard
-
-**Changes Made:**
-1. **Modern Design System:**
-   - Glass morphism effects with backdrop blur
-   - Hero gradient background (emerald → slate → indigo)
-   - Smooth fade-in animations
-   - Stat cards with gradient backgrounds
-   - Clean typography with proper spacing
-
-2. **Authentication System:**
-   - Login page (`/login`) with email/password
-   - Register page (`/register`) with password confirmation
-   - Logout functionality via navbar dropdown
-   - User session storage with `app.storage.user`
-   - SHA256 password hashing
-   - Demo admin: `admin@netprice.local` / `admin123`
-
-3. **Admin Dashboard (`/admin`):**
-   - Stats cards: Retailers, Cashback Entries, Queries, Users
-   - Top Retailers table: Query volume per retailer
-   - Platform Status: Live/disabled status per cashback platform
-   - Users table: All registered users with admin badges
-
-4. **Removed All Coupon References:**
-   - "🏷️ We find coupons automatically" text removed
-   - Clean messaging focused on cashback comparison
-   - No more "coupon" terminology in UI
-
-**Files Modified:**
-| File | Changes |
-|------|---------|
-| `app-frontend/main.py` | Complete rewrite (508 insertions, 645 deletions) |
-
-**New UI Flow:**
-- Unauthenticated users → Landing page with Get Started/Login buttons
-- Authenticated users → Hero search with product URL input
-- Admin users → Full dashboard access via Admin link in navbar
-
-**New Components:**
-- `create_navbar()` – Responsive nav with auth-aware menu
-- `create_hero_search()` – Animated search for authenticated users
-- `create_landing()` – Landing page for unauthenticated users
-- `create_login()` / `create_register()` – Glass-styled auth forms
-- `create_admin()` – Full admin dashboard with tables
-- `create_results()` – Price breakdown with cashback comparison
-
----
-
-#### Session: 2026-01-03 – Cashback Scraper Overhaul
-
-**Issues Fixed:**
-- 🐛 Pandora cashback not found (wrong URL slugs)
-- 🐛 API endpoints returning 404 for valid merchants
-- 🐛 False positive: FineJewelers 5% attributed to Pandora
-- 🐛 Rakuten 4% found in logs but UI showed "Not available"
-- ✨ Added descriptive logging for real-time backend progress
-
-**Root Causes & Solutions:**
-
-1. **Wrong URL Slugs:** Added `SLUG_OVERRIDES` and `SLUG_ALTERNATIVES` for merchants with non-obvious URLs:
-   - `pandora` → `pandora-jewelry`
-   - `ulta` → `ultabeauty`
-
-2. **Search Page Strategy:** Implemented `_search_page()` as primary scraping method:
-   - Rakuten: `/search?term=X&type=suggest`
-   - TopCashback: `/search/merchants/?s=X`
-   - More reliable than direct store page URLs
-
-3. **False Positive Matching:** Removed loose fallback logic that grabbed ANY rate when merchant name appeared on page
-
-4. **UI Transparency Fix:** ALL cashback offers now passed through to API:
-   - Added `_found_cashback_offers` list to optimizer
-   - Added `all_cashback_offers` field to `OptimizationResult`
-   - Server uses actual scraper results instead of guessing
-
-5. **Descriptive Logging:** Real-time progress updates:
-   - `[SCRAPING]` logs when platforms are queued and searched
-   - `[CASHBACK]` logs with ✓/✗ for found/not found
-   - `[OPTIMIZER]` logs for product extraction and savings calculation
-   - `[SUMMARY]` block at end with full breakdown
-
-**Files Modified:**
-| File | Changes |
-|------|---------|
-| `intelligence-core/cashback/scrapers/rakuten.py` | Added `_search_page()`, `SLUG_OVERRIDES`, fixed regex |
-| `intelligence-core/cashback/scrapers/topcashback.py` | Added `_search_page()`, improved `_is_not_found()` |
-| `intelligence-core/cashback/scrapers/honey.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, `_get_all_slugs()` |
-| `intelligence-core/cashback/scrapers/befrugal.py` | Added `_search_page()`, `SLUG_OVERRIDES`, `_get_all_slugs()` |
-| `intelligence-core/cashback/scrapers/swagbucks.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, improved matching |
-| `intelligence-core/optimizer/net_price.py` | Store ALL offers, not just best; add `all_cashback_offers` |
-| `intelligence-core/api/server.py` | Use actual offers for transparency instead of guessing |
-| `app-frontend/main.py` | Enhanced UI progress with platform-by-platform status |
-
-**Result:** All 5 scrapers now have consistent search strategies and UI shows detailed progress
+**Milestone:** Complete cross-retailer comparison, fix all known bugs, and polish UI/UX
 
 ---
 
 ## 🔮 Future Versions
 
-### v0.2.0 – Core Infrastructure
-- [ ] Complete Docker Compose with all services
-- [ ] GPU passthrough for WebGL + CUDA
-- [ ] Basic NiceGUI dashboard layout
-
-### v0.3.0 – Visual Scraping
-- [ ] Playwright screencast streaming
-- [ ] Interactive image with click relay
-- [ ] Anti-bot evasion (stealth patches)
-
-### v0.4.0 – Intelligence Integration
-- [ ] Ollama semantic routing
-- [ ] Function calling implementation
-- [ ] Firefly III API integration
-
-### v0.5.0 – Document Parsing
-- [ ] PDF to image conversion
-- [ ] Vision LLM parsing (Llava)
-- [ ] Pydantic validation pipeline
+### v0.9.0 – Notifications & Alerts
+- [ ] Price drop email/push notifications
+- [ ] Target price alerts implementation
+- [ ] Cashback rate change alerts
+- [ ] Weekly savings digest emails
 
 ### v1.0.0 – MVP Release
-- [ ] All core features operational
-- [ ] Documentation complete
+- [x] Core price optimization operational
+- [x] Cashback comparison across 5 platforms
+- [x] User authentication and data persistence
+- [ ] Cross-retailer comparison complete
+- [ ] All known bugs fixed
 - [ ] Production-ready deployment
+- [ ] Full documentation
+
+### v1.1.0 – Mobile & PWA
+- [ ] Progressive Web App support
+- [ ] Mobile-optimized interface
+- [ ] Push notifications
 
 ---
 
-## 📝 Changelog Format
+## 📜 Version History (Quick Reference)
 
-When updating this roadmap after commits, use the following format:
+| Version | Name | Status | Summary |
+|---------|------|--------|---------|
+| `v0.8.0` | Cross-Retailer Comparison, QA & UX Polish | 🔄 In Progress | Multi-retailer price comparison, UI fixes, settings enhancements |
+| `v0.7.0` | Data Persistence & User Experience | ✅ Complete | SQLite user database, card wallet persistence, search history |
+| `v0.6.0` | Frontend Integration, Testing & Docs | ✅ Complete | FastAPI server, NiceGUI redesign, 70+ test cases, API docs |
+| `v0.5.0` | Sovereign Features | ✅ Complete | Vision parser, rewards schema, cashback monitor, net price optimizer |
+| `v0.4.0` | Brain & Memory | ✅ Complete | Ollama LLM, Firefly III, semantic router, intent classification |
+| `v0.3.0` | Eyes (Visual Browser) | ✅ Complete | Playwright scraper, stealth patches, real-time UI streaming |
+| `v0.2.0` | Core Infrastructure | ✅ Complete | Docker stack with 6 services, GPU passthrough, all containers healthy |
+| `v0.1.0-alpha` | Project Initialization | ✅ Complete | Repository setup, LICENSE, README, architecture spec |
 
-```markdown
-### vX.Y.Z – Feature Name
-**Date:** YYYY-MM-DD  
-**Branch:** `branch-name`  
-**Commit:** `commit-hash` or `commit-message-summary`
-
-#### Changes
-| File | Action | Description |
-|------|--------|-------------|
-| `file.py` | Created/Updated/Deleted | What changed |
-
-#### Summary
-Brief description of what was accomplished.
-```
+> 📖 **See [CHANGELOG.md](CHANGELOG.md) for detailed commit history and session notes**
 
 ---
 
@@ -838,11 +489,13 @@ Brief description of what was accomplished.
 
 ## 🔗 Related Documents
 
+- [CHANGELOG.md](CHANGELOG.md) – Detailed version history and commit logs
 - [README.md](README.md) – Project overview and setup
-- [research.txt](research.txt) – Full architectural specification
+- [docs/API.md](docs/API.md) – API documentation
+- [docs/FEATURES.md](docs/FEATURES.md) – User guide and architecture
 
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-03 (Phase 7 - SQLite data persistence implemented)</em>
+  <em>Last updated: 2026-01-04</em>
 </p>
