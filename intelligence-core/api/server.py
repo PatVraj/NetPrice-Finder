@@ -340,33 +340,35 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
             ]
             
             # Build cashback transparency data
-            # Check what platforms were searched (from optimizer's cashback data)
+            # Use ALL offers from optimization (not just the best one)
             platforms_checked = ["Rakuten", "TopCashback", "Honey", "BeFrugal", "Swagbucks"]
             all_rates = []
             
-            if savings.cashback_platform:
-                # We found something - record it
-                for platform in platforms_checked:
-                    if platform.lower() == savings.cashback_platform.lower():
-                        cashback_results.append(CashbackSearchResult(
-                            platform=platform,
-                            rate=savings.cashback_percent,
-                            found=True
-                        ))
-                        all_rates.append({
-                            "platform": platform,
-                            "rate": savings.cashback_percent,
-                            "is_best": True
-                        })
-                    else:
-                        cashback_results.append(CashbackSearchResult(
-                            platform=platform,
-                            rate=0.0,
-                            found=False
-                        ))
-            else:
-                # No cashback found on any platform
-                for platform in platforms_checked:
+            # Build a map of platform -> offer from actual scraping results
+            found_offers = {
+                offer["platform"].lower(): offer
+                for offer in result.all_cashback_offers
+            }
+            
+            for platform in platforms_checked:
+                platform_key = platform.lower()
+                if platform_key in found_offers:
+                    # This platform was actually found during scraping
+                    offer = found_offers[platform_key]
+                    is_best = (savings.cashback_platform and 
+                              platform_key == savings.cashback_platform.lower())
+                    cashback_results.append(CashbackSearchResult(
+                        platform=platform,
+                        rate=offer["rate"],
+                        found=True
+                    ))
+                    all_rates.append({
+                        "platform": platform,
+                        "rate": offer["rate"],
+                        "is_best": is_best
+                    })
+                else:
+                    # Platform was checked but no offer found
                     cashback_results.append(CashbackSearchResult(
                         platform=platform,
                         rate=0.0,

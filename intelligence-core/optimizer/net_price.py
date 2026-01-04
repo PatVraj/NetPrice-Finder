@@ -180,6 +180,9 @@ class OptimizationResult:
     # Promo codes found from cashback platforms
     available_promo_codes: list[dict] = field(default_factory=list)
     
+    # All cashback offers found (for transparency - show what each platform returned)
+    all_cashback_offers: list[dict] = field(default_factory=list)
+    
     # Comparison stats
     cheapest_gross: float = 0.0
     cheapest_net: float = 0.0
@@ -197,6 +200,7 @@ class OptimizationResult:
             "options": [o.to_dict() for o in self.options],
             "best_option": self.best_option.to_dict() if self.best_option else None,
             "available_promo_codes": self.available_promo_codes,
+            "all_cashback_offers": self.all_cashback_offers,
             "cheapest_gross": self.cheapest_gross,
             "cheapest_net": self.cheapest_net,
             "max_savings": self.max_savings,
@@ -670,6 +674,9 @@ class NetPriceOptimizer:
         
         # Store promo codes found during optimization
         self._found_promo_codes: list[dict] = []
+        
+        # Store ALL cashback offers found (for transparency in UI)
+        self._found_cashback_offers: list[dict] = []
     
     async def _get_cashback_monitor(self):
         """Lazy load cashback monitor."""
@@ -704,8 +711,9 @@ class NetPriceOptimizer:
         """
         start_time = asyncio.get_event_loop().time()
         
-        # Reset promo codes for new optimization
+        # Reset promo codes and cashback offers for new optimization
         self._found_promo_codes = []
+        self._found_cashback_offers = []
         
         result = OptimizationResult(
             query=query,
@@ -721,6 +729,7 @@ class NetPriceOptimizer:
             
             result.options = options
             result.available_promo_codes = self._found_promo_codes
+            result.all_cashback_offers = self._found_cashback_offers
             
             if options:
                 # Sort by net price
@@ -805,6 +814,15 @@ class NetPriceOptimizer:
         try:
             # Get both cashback offers AND promo codes from all platforms
             cashback_result = await cashback_monitor.find_best_cashback_and_promos(retailer_name)
+            
+            # Store ALL cashback offers for transparency (not just the best one)
+            for offer in cashback_result.offers:
+                self._found_cashback_offers.append({
+                    "platform": offer.platform.value,
+                    "rate": offer.effective_rate,
+                    "cashback_text": offer.cashback_text,
+                    "found": True,
+                })
             
             if cashback_result.best_offer:
                 offer = cashback_result.best_offer
