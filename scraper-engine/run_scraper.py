@@ -65,6 +65,7 @@ class ExtractResult(BaseModel):
     page_title: Optional[str] = None  # Page <title> as fallback for product name
     extracted: dict[str, Optional[str]]  # selector name -> extracted text
     html: Optional[str] = None
+    body_text: Optional[str] = None  # Visible text from the page (innerText)
     screenshot: Optional[str] = None
 
 # =============================================================================
@@ -80,6 +81,7 @@ class ScraperEngine:
     - WebGL fingerprinting via GPU passthrough
     - Real-time screenshot streaming to Redis
     - Human-in-the-Loop (HITL) click relay
+    - Request queuing to prevent concurrent navigation conflicts
     """
     
     def __init__(self):
@@ -90,6 +92,7 @@ class ScraperEngine:
         self.redis_client: Optional[redis.Redis] = None
         self.streaming = False
         self._stream_task: Optional[asyncio.Task] = None
+        self._page_lock: asyncio.Lock = asyncio.Lock()  # Serialize page access
     
     async def initialize(self):
         """Initialize Playwright and Redis connections."""
@@ -363,60 +366,132 @@ async def extract_data(request: ExtractRequest):
     
     For each selector name, tries multiple CSS selectors in order
     and returns the first match found.
+    
+    Uses a lock to serialize requests - only one extraction at a time
+    to prevent navigation conflicts in the shared browser context.
     """
     if not scraper.page:
         raise HTTPException(status_code=503, detail="Scraper not initialized")
     
-    try:
-        # Navigate to the URL
-        logger.info("Extracting data from URL", url=request.url)
-        await scraper.page.goto(
-            request.url, 
-            wait_until=request.wait_for, 
-            timeout=request.timeout
-        )
-        
-        title = await scraper.page.title()
-        extracted = {}
-        
-        # Try each selector group
-        for name, selectors in request.selectors.items():
-            extracted[name] = None
-            for selector in selectors:
+    # Serialize access to the browser page
+    async with scraper._page_lock:
+        try:
+            # Navigate to the URL
+            logger.info("Extracting data from URL", url=request.url)
+            
+            # Use 'load' or 'domcontentloaded' and add a delay for JS rendering
+            # 'networkidle' often times out on sites with continuous activity
+            wait_strategy = request.wait_for
+            if wait_strategy == "networkidle":
+                # For networkidle, wait for load then give JS time to hydrate
                 try:
-                    element = await scraper.page.query_selector(selector)
-                    if element:
-                        text = await element.inner_text()
-                        if text and text.strip():
-                            extracted[name] = text.strip()
-                            break
-                except Exception:
-                    continue
-        
-        # Get page HTML for LLM fallback
-        html = await scraper.page.content()
-        
-        # Take a screenshot
-        screenshot_bytes = await scraper.page.screenshot(
-            type='jpeg',
-            quality=SCREENSHOT_QUALITY
-        )
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-        
-        logger.info("Extraction complete", url=request.url, extracted=extracted)
-        
-        return ExtractResult(
-            url=request.url,
-            title=title,
-            page_title=title,  # Include page title for fallback
-            extracted=extracted,
-            html=html[:50000] if html else None,  # Limit HTML size
-            screenshot=screenshot_b64
-        )
-        
-    except Exception as e:
-        logger.error("Extraction failed", url=request.url, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+                    await scraper.page.goto(
+                        request.url, 
+                        wait_until="load", 
+                        timeout=30000
+                    )
+                    # Wait for JS frameworks to render content (React, Vue, etc.)
+                    # Most SPAs need 3-5 seconds after load to hydrate
+                    logger.info("Waiting for JS to render...")
+                    await asyncio.sleep(3)
+                    
+                    # Try to dismiss cookie consent popups
+                    cookie_selectors = [
+                        # Common accept button patterns
+                        'button:has-text("Accept")',
+                        'button:has-text("Accept All")',
+                        'button:has-text("Accept Cookies")',
+                        'button:has-text("I Accept")',
+                        'button:has-text("Agree")',
+                        'button:has-text("OK")',
+                        'button:has-text("Got it")',
+                        '[id*="accept"]',
+                        '[class*="accept"]',
+                        '[data-testid*="accept"]',
+                        '#onetrust-accept-btn-handler',
+                        '.cookie-accept',
+                        '.consent-accept',
+                    ]
+                    
+                    for selector in cookie_selectors:
+                        try:
+                            btn = await scraper.page.query_selector(selector)
+                            if btn and await btn.is_visible():
+                                logger.info("Clicking cookie consent button", selector=selector)
+                                await btn.click()
+                                await asyncio.sleep(1)
+                                break
+                        except Exception:
+                            continue
+                    
+                    # Wait a bit more for content to load after dismissing popup
+                    await asyncio.sleep(3)
+                    
+                except Exception as e:
+                    logger.warning("Load failed, trying domcontentloaded", error=str(e))
+                    # Fall back to just domcontentloaded
+                    await scraper.page.goto(
+                        request.url, 
+                        wait_until="domcontentloaded", 
+                        timeout=30000
+                    )
+                    await asyncio.sleep(7)
+            else:
+                await scraper.page.goto(
+                    request.url, 
+                    wait_until=wait_strategy, 
+                    timeout=request.timeout
+                )
+            
+            title = await scraper.page.title()
+            extracted = {}
+            
+            # Try each selector group
+            for name, selectors in request.selectors.items():
+                extracted[name] = None
+                for selector in selectors:
+                    try:
+                        element = await scraper.page.query_selector(selector)
+                        if element:
+                            text = await element.inner_text()
+                            if text and text.strip():
+                                extracted[name] = text.strip()
+                                break
+                    except Exception:
+                        continue
+            
+            # Get page HTML for LLM fallback
+            html = await scraper.page.content()
+            
+            # Get visible text from the page (innerText) - useful for parsing rendered content
+            try:
+                body = await scraper.page.query_selector('body')
+                body_text = await body.inner_text() if body else None
+            except Exception:
+                body_text = None
+            
+            # Take a screenshot
+            screenshot_bytes = await scraper.page.screenshot(
+                type='jpeg',
+                quality=SCREENSHOT_QUALITY
+            )
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+            
+            logger.info("Extraction complete", url=request.url, extracted=extracted, html_length=len(html) if html else 0, body_text_length=len(body_text) if body_text else 0)
+            
+            return ExtractResult(
+                url=request.url,
+                title=title,
+                page_title=title,  # Include page title for fallback
+                extracted=extracted,
+                html=html[:200000] if html else None,  # Increased limit for JS-heavy sites
+                body_text=body_text[:50000] if body_text else None,  # Visible text from page
+                screenshot=screenshot_b64
+            )
+            
+        except Exception as e:
+            logger.error("Extraction failed", url=request.url, error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # Main Entry Point
