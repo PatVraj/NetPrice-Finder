@@ -565,6 +565,14 @@ class RetailerIntelligence:
             "cache": cache_stats,
             "major_retailers_count": len(MAJOR_RETAILERS),
         }
+    
+    async def get_top_retailers(self, limit: int = 10) -> list:
+        """Get top retailers by query count."""
+        return self.db.get_top_retailers(limit)
+    
+    async def get_platform_status(self) -> list:
+        """Get status of each cashback platform."""
+        return self.db.get_platform_status()
 
 
 # =============================================================================

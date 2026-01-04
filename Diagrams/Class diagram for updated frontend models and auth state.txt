@@ -1,0 +1,75 @@
+classDiagram
+    class CashbackSearchResult {
+        +platform: str
+        +rate: float
+        +found: bool
+    }
+
+    class SearchTransparency {
+        +cashback_platforms_checked: List~CashbackSearchResult~
+        +tax_source: str
+        +search_duration_ms: int
+    }
+
+    class PriceResult {
+        +retailer: str
+        +product_name: str
+        +product_price: float
+        +coupon_code: str
+        +coupon_discount: float
+        +tax: float
+        +tax_location: str
+        +tax_rate: float
+        +shipping: float
+        +cashback_platform: str
+        +cashback_percent: float
+        +cashback_value: float
+        +card_name: str
+        +card_reward_percent: float
+        +card_reward_value: float
+        +gross_total: float
+        +net_price: float
+        +total_savings: float
+        +savings_percent: float
+        +search_transparency: SearchTransparency
+    }
+
+    class UserCard {
+        +name: str
+        +issuer: str
+        +base_rate: float
+        +highlights: List~str~
+    }
+
+    class User {
+        +id: str
+        +email: str
+        +password_hash: str
+        +is_admin: bool
+        +created_at: str
+    }
+
+    class AppState {
+        +redis_client: Optional~redis.Redis~
+        +current_result: Optional~PriceResult~
+        +user_cards: List~UserCard~
+        +user_tax_rate: Optional~float~
+        +user_location: Optional~str~
+        +users_db: Dict~str, User~
+    }
+
+    class AuthHelpers {
+        +hash_password(password: str) str
+        +verify_password(password: str, password_hash: str) bool
+        +get_current_user() Optional~User~
+        +is_authenticated() bool
+        +is_admin() bool
+    }
+
+    AppState "1" --> "*" User : users_db
+    AppState "1" --> "0..1" PriceResult : current_result
+    AppState "1" --> "*" UserCard : user_cards
+    PriceResult --> SearchTransparency : has
+    SearchTransparency --> "*" CashbackSearchResult : cashback_platforms_checked
+    AuthHelpers --> AppState : reads
+    AuthHelpers --> User : manages

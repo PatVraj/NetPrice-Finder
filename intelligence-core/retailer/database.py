@@ -775,4 +775,82 @@ class RetailerDatabase:
             cursor.execute("SELECT COUNT(*) FROM promo_codes WHERE verified = 1")
             stats["verified_promo_codes"] = cursor.fetchone()[0]
             
+            cursor.execute("SELECT COUNT(*) FROM scrape_history")
+            stats["total_queries"] = cursor.fetchone()[0]
+            
             return stats
+
+    def get_top_retailers(self, limit: int = 10) -> list:
+        """Get top retailers by query count with average cashback."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    r.name,
+                    r.normalized_name,
+                    COUNT(sh.id) as query_count,
+                    COALESCE(AVG(co.cashback_percent), 0) as avg_cashback
+                FROM retailers r
+                LEFT JOIN scrape_history sh ON r.id = sh.retailer_id
+                LEFT JOIN cashback_offers co ON r.id = co.retailer_id
+                GROUP BY r.id, r.name, r.normalized_name
+                ORDER BY query_count DESC
+                LIMIT ?
+            """, (limit,))
+            
+            results = []
+            for i, row in enumerate(cursor.fetchall(), 1):
+                results.append({
+                    "rank": i,
+                    "name": row["name"],
+                    "normalized_name": row["normalized_name"],
+                    "queries": row["query_count"],
+                    "avg_cashback": f"{row['avg_cashback']:.1f}%"
+                })
+            
+            return results
+
+    def get_platform_status(self) -> list:
+        """Get status of each cashback platform."""
+        MIN_SAMPLE_SIZE = 5  # Minimum scrapes to consider platform status reliable
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get platforms and their success rates from recent scrapes
+            cursor.execute("""
+                SELECT 
+                    platform,
+                    COUNT(*) as total_scrapes,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
+                    MAX(scraped_at) as last_scrape
+                FROM scrape_history
+                WHERE scraped_at > datetime('now', '-24 hours')
+                GROUP BY platform
+                ORDER BY total_scrapes DESC
+            """)
+            
+            platforms = []
+            for row in cursor.fetchall():
+                total = row["total_scrapes"]
+                successful = row["successful"]
+                success_rate = (successful / total * 100) if total > 0 else 0
+                
+                # Platform is active if:
+                # 1. Has enough sample size (MIN_SAMPLE_SIZE scrapes)
+                # 2. Success rate is above 50%
+                # 3. Has recent activity (last scrape within 24 hours - already filtered in query)
+                is_active = total >= MIN_SAMPLE_SIZE and success_rate > 50
+                
+                platforms.append({
+                    "name": row["platform"],
+                    "active": is_active,
+                    "success_rate": round(success_rate, 1),  # Numeric for frontend flexibility
+                    "success_rate_display": f"{success_rate:.0f}%",
+                    "total_scrapes": total,
+                    "last_scrape": row["last_scrape"],
+                    "reliable": total >= MIN_SAMPLE_SIZE  # Indicates if sample size is sufficient
+                })
+            
+            return platforms
