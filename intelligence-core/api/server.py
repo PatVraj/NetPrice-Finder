@@ -89,14 +89,6 @@ class QuickPriceRequest(BaseModel):
     tax_rate: float = Field(0, ge=0, le=1)
     shipping: float = Field(0, ge=0)
 
-class PromoCodeInfo(BaseModel):
-    """A promo/coupon code found from a platform."""
-    code: str
-    source: str
-    description: Optional[str] = None
-    discount_percent: Optional[float] = None
-    discount_amount: Optional[float] = None
-
 class CashbackSearchResult(BaseModel):
     """Result from checking a single cashback platform."""
     platform: str
@@ -104,16 +96,9 @@ class CashbackSearchResult(BaseModel):
     found: bool = False
     error: Optional[str] = None
 
-class PromoSearchResult(BaseModel):
-    """Result from checking a promo code source."""
-    source: str
-    codes_found: int = 0
-    error: Optional[str] = None
-
 class SearchTransparency(BaseModel):
     """Transparency into what was searched and found."""
     cashback_platforms_checked: List[CashbackSearchResult] = Field(default_factory=list)
-    promo_sources_checked: List[PromoSearchResult] = Field(default_factory=list)
     tax_source: str = "default"  # "browser", "ip", "default"
     search_duration_ms: int = 0
 
@@ -125,7 +110,6 @@ class SavingsResponse(BaseModel):
     original_url: str
     coupon_code: Optional[str]
     coupon_discount: float
-    available_promo_codes: List[PromoCodeInfo] = Field(default_factory=list)
     tax: float
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -267,7 +251,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
         
         # Track search transparency
         cashback_results = []
-        promo_results = []
         tax_source = "default"
         
         # Determine tax rate - prefer user-provided, then IP, then default
@@ -317,28 +300,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
             
             logger.info(f"Best option: {product.name}, price=${savings.product_price}, net=${savings.net_price}")
             
-            # Build promo code list for response
-            promo_codes = [
-                PromoCodeInfo(
-                    code=p.get("code", ""),
-                    source=p.get("source", ""),
-                    description=p.get("description"),
-                    discount_percent=p.get("discount_percent"),
-                    discount_amount=p.get("discount_amount"),
-                )
-                for p in result.available_promo_codes
-            ]
-            
-            # Get promo source stats
-            promo_sources = {}
-            for p in result.available_promo_codes:
-                src = p.get("source", "Unknown")
-                promo_sources[src] = promo_sources.get(src, 0) + 1
-            promo_results = [
-                PromoSearchResult(source=src, codes_found=count)
-                for src, count in promo_sources.items()
-            ]
-            
             # Build cashback transparency data
             # Use ALL offers from optimization (not just the best one)
             platforms_checked = ["Rakuten", "TopCashback", "Honey", "BeFrugal", "Swagbucks"]
@@ -375,14 +336,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                         found=False
                     ))
             
-            # Add common promo sources if none found
-            if not promo_results:
-                promo_results = [
-                    PromoSearchResult(source="RetailMeNot", codes_found=0),
-                    PromoSearchResult(source="Honey", codes_found=0),
-                    PromoSearchResult(source="Vendor Site", codes_found=0),
-                ]
-            
             search_duration = int((time.time() - start_time) * 1000)
             
             return SavingsResponse(
@@ -392,7 +345,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 original_url=product.url,
                 coupon_code=savings.coupon_code,
                 coupon_discount=savings.coupon_savings,
-                available_promo_codes=promo_codes,
                 tax=savings.tax,
                 tax_rate=tax_rate * 100,  # Convert to percentage
                 tax_location=tax_location,
@@ -410,7 +362,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 savings_percent=savings.savings_percent,
                 search_transparency=SearchTransparency(
                     cashback_platforms_checked=cashback_results,
-                    promo_sources_checked=promo_results,
                     tax_source=tax_source,
                     search_duration_ms=search_duration
                 ),
@@ -430,7 +381,7 @@ async def get_cashback_rates(request: CashbackRatesRequest):
     """
     try:
         async with CashbackMonitor() as monitor:
-            result = await monitor.find_best_cashback_and_promos(request.merchant)
+            result = await monitor.find_best_cashback(request.merchant)
             
             best_rate = result.best_offer.effective_rate if result.best_offer else 0.0
             

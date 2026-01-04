@@ -36,15 +36,6 @@ FIREFLY_API_URL = os.getenv("FIREFLY_API_URL", "http://firefly:8080")
 # =============================================================================
 
 @dataclass
-class PromoCodeResult:
-    """A promo code found from cashback platforms."""
-    code: str
-    source: str
-    description: Optional[str] = None
-    discount_percent: Optional[float] = None
-    discount_amount: Optional[float] = None
-
-@dataclass
 class CashbackSearchResult:
     """Result from checking a single cashback platform."""
     platform: str
@@ -53,17 +44,9 @@ class CashbackSearchResult:
     error: Optional[str] = None
 
 @dataclass
-class PromoSearchResult:
-    """Result from checking a promo code source."""
-    source: str
-    codes_found: int = 0
-    error: Optional[str] = None
-
-@dataclass
 class SearchTransparency:
     """Transparency into what was searched and found."""
     cashback_platforms_checked: List[CashbackSearchResult] = field(default_factory=list)
-    promo_sources_checked: List[PromoSearchResult] = field(default_factory=list)
     tax_source: str = "default"  # "browser", "ip", "default"
     search_duration_ms: int = 0
 
@@ -76,7 +59,6 @@ class PriceResult:
     original_url: str = ""
     coupon_code: Optional[str] = None
     coupon_discount: float = 0.0
-    available_promo_codes: List[PromoCodeResult] = field(default_factory=list)
     tax: float = 0.0
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -162,17 +144,6 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
             if response.status_code == 200:
                 data = response.json()
                 
-                # Parse promo codes
-                promo_codes = []
-                for p in data.get("available_promo_codes", []):
-                    promo_codes.append(PromoCodeResult(
-                        code=p.get("code", ""),
-                        source=p.get("source", ""),
-                        description=p.get("description"),
-                        discount_percent=p.get("discount_percent"),
-                        discount_amount=p.get("discount_amount"),
-                    ))
-                
                 # Parse search transparency
                 transparency = None
                 if data.get("search_transparency"):
@@ -186,25 +157,15 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
                         )
                         for c in t.get("cashback_platforms_checked", [])
                     ]
-                    promo_results = [
-                        PromoSearchResult(
-                            source=p.get("source", ""),
-                            codes_found=p.get("codes_found", 0),
-                            error=p.get("error")
-                        )
-                        for p in t.get("promo_sources_checked", [])
-                    ]
                     transparency = SearchTransparency(
                         cashback_platforms_checked=cashback_results,
-                        promo_sources_checked=promo_results,
                         tax_source=t.get("tax_source", "default"),
                         search_duration_ms=t.get("search_duration_ms", 0)
                     )
                 
                 # Build PriceResult, excluding timestamp and handling complex objects
                 result_data = {k: v for k, v in data.items() 
-                              if k not in ['timestamp', 'available_promo_codes', 'search_transparency']}
-                result_data['available_promo_codes'] = promo_codes
+                              if k not in ['timestamp', 'search_transparency']}
                 result_data['search_transparency'] = transparency
                 
                 return PriceResult(**result_data)
@@ -395,9 +356,6 @@ def create_search_hero():
                         await update_progress("   └─ 🔍 Swagbucks...")
                         await asyncio.sleep(0.1)
                         
-                        await update_progress("🎫 Searching for promo codes...")
-                        await asyncio.sleep(0.1)
-                        
                         await update_progress("💳 Checking card rewards...")
                         await asyncio.sleep(0.1)
                         
@@ -420,8 +378,6 @@ def create_search_hero():
                             
                             if result.coupon_code:
                                 await update_progress(f"🏷️ Coupon found: {result.coupon_code}")
-                            if result.available_promo_codes:
-                                await update_progress(f"🎫 Found {len(result.available_promo_codes)} promo code(s)")
                             
                             await update_progress("🎯 Calculating best net price...")
                             await asyncio.sleep(0.2)
@@ -610,29 +566,6 @@ def create_results_display():
             if r.cashback_platform:
                 ui.button(f'Go to {r.cashback_platform}', icon='open_in_new').props('color=positive')
         
-        # Available Promo Codes Section
-        if hasattr(r, 'available_promo_codes') and r.available_promo_codes:
-            with ui.card().classes('w-full mt-4 bg-gray-800'):
-                with ui.row().classes('items-center gap-2 mb-4'):
-                    ui.icon('sell', color='amber')
-                    ui.label(f'🎫 {len(r.available_promo_codes)} Promo Codes Found').classes('text-lg font-semibold text-amber-400')
-                
-                with ui.column().classes('gap-2 w-full'):
-                    for promo in r.available_promo_codes[:5]:  # Show top 5
-                        with ui.card().classes('w-full bg-gray-700'):
-                            with ui.row().classes('w-full justify-between items-center'):
-                                with ui.column().classes('gap-0'):
-                                    with ui.row().classes('items-center gap-2'):
-                                        ui.label(promo.code).classes('font-mono font-bold text-amber-300')
-                                        ui.badge(promo.source).props('color=blue')
-                                    if promo.description:
-                                        ui.label(promo.description).classes('text-sm text-gray-400')
-                                
-                                async def copy_promo(code=promo.code):
-                                    await ui.run_javascript(f'navigator.clipboard.writeText("{code}")')
-                                    ui.notify(f'Code "{code}" copied!', type='positive')
-                                ui.button('Copy', on_click=copy_promo, icon='content_copy').props('flat size=sm')
-        
         # Search Transparency Section - What we checked
         with ui.expansion('🔍 What We Searched', icon='info').classes('w-full mt-4'):
             with ui.column().classes('w-full gap-4'):
@@ -668,32 +601,6 @@ def create_results_display():
                                         else:
                                             ui.icon('cancel', size='xs', color='gray')
                                             ui.label(platform).classes('text-sm text-gray-500')
-                
-                # Promo Code Sources
-                with ui.card().classes('w-full bg-gray-800'):
-                    ui.label('🏷️ Promo Code Sources').classes('font-semibold text-gray-300 mb-2')
-                    
-                    if r.search_transparency and r.search_transparency.promo_sources_checked:
-                        with ui.column().classes('gap-1 w-full'):
-                            for ps in r.search_transparency.promo_sources_checked:
-                                with ui.row().classes('w-full justify-between items-center py-1'):
-                                    with ui.row().classes('items-center gap-2'):
-                                        if ps.codes_found > 0:
-                                            ui.icon('check_circle', size='xs', color='amber')
-                                        else:
-                                            ui.icon('cancel', size='xs', color='gray')
-                                        ui.label(ps.source).classes('text-sm')
-                                    if ps.codes_found > 0:
-                                        ui.badge(f'{ps.codes_found} codes', color='amber').props('dense')
-                                    else:
-                                        ui.label('No codes').classes('text-xs text-gray-500')
-                    else:
-                        sources = ['RetailMeNot', 'Honey', 'Vendor Site']
-                        with ui.column().classes('gap-1 w-full'):
-                            for source in sources:
-                                with ui.row().classes('w-full justify-between items-center py-1'):
-                                    ui.icon('cancel', size='xs', color='gray')
-                                    ui.label(source).classes('text-sm text-gray-500')
                 
                 # Tax Source Info
                 with ui.card().classes('w-full bg-gray-800'):

@@ -107,7 +107,6 @@ class BaseScraper(ABC):
     
     Each platform scraper should implement:
     - search(): Find cashback offers for a merchant
-    - get_promo_codes(): Get available promo codes
     - get_deals(): Get promotional deals (optional)
     """
     
@@ -131,19 +130,6 @@ class BaseScraper(ABC):
             List of CashbackOffer objects
         """
         pass
-    
-    async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
-        """
-        Get promo codes for a merchant.
-        
-        Args:
-            merchant: Merchant name
-            client: HTTP client
-            
-        Returns:
-            List of PromoCode objects
-        """
-        return []  # Default implementation returns empty list
     
     async def get_deals(self, merchant: str, client: httpx.AsyncClient) -> list[Deal]:
         """

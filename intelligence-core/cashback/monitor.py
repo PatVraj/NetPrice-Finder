@@ -1,7 +1,7 @@
 """
-Cashback & Promo Code Monitor for SSIP
-Checks cashback rates AND promo codes across Rakuten, Honey, TopCashback, and other platforms.
-Finds the best cashback offer and available promo codes for any retailer.
+Cashback Monitor for SSIP
+Checks cashback rates across Rakuten, Honey, TopCashback, and other platforms.
+Finds the best cashback offer for any retailer.
 
 The scraping logic for each platform is now modularized in the scrapers/ package.
 """
@@ -61,41 +61,6 @@ class CashbackPlatform(Enum):
 
 
 @dataclass
-class PromoCode:
-    """A promo/coupon code from a platform."""
-    platform: CashbackPlatform
-    merchant: str
-    code: str
-    description: str = ""
-    
-    # Discount info
-    discount_percent: Optional[float] = None  # e.g., 20 for 20% off
-    discount_amount: Optional[float] = None   # e.g., $10 off
-    minimum_purchase: Optional[float] = None  # e.g., $50 minimum
-    
-    # Metadata
-    expires: Optional[str] = None
-    verified: bool = False
-    success_rate: Optional[float] = None  # e.g., 85% success
-    last_used: Optional[str] = None
-    affiliate_url: Optional[str] = None
-    
-    def to_dict(self) -> dict:
-        result = asdict(self)
-        result["platform"] = self.platform.value
-        return result
-    
-    @property
-    def effective_value(self) -> float:
-        """Estimated value for comparison (assume $100 purchase)."""
-        if self.discount_percent:
-            return self.discount_percent
-        if self.discount_amount:
-            return self.discount_amount
-        return 0.0
-
-
-@dataclass
 class CashbackOffer:
     """A cashback offer from a platform."""
     platform: CashbackPlatform
@@ -141,41 +106,29 @@ class MerchantCashback:
     """Aggregated cashback info for a merchant across all platforms."""
     merchant: str
     offers: list[CashbackOffer] = field(default_factory=list)
-    promo_codes: list[PromoCode] = field(default_factory=list)
     best_offer: Optional[CashbackOffer] = None
-    best_promo: Optional[PromoCode] = None
     checked_at: Optional[str] = None
     
     def __post_init__(self):
         self._update_best()
     
     def _update_best(self):
-        """Update the best offer and promo based on effective rate."""
+        """Update the best offer based on effective rate."""
         if self.offers:
             self.best_offer = max(self.offers, key=lambda o: o.effective_rate)
-        if self.promo_codes:
-            self.best_promo = max(self.promo_codes, key=lambda p: p.effective_value)
     
     def add_offer(self, offer: CashbackOffer):
         """Add an offer and update best."""
         self.offers.append(offer)
         self._update_best()
     
-    def add_promo(self, promo: PromoCode):
-        """Add a promo code and update best."""
-        self.promo_codes.append(promo)
-        self._update_best()
-    
     def to_dict(self) -> dict:
         return {
             "merchant": self.merchant,
             "offers": [o.to_dict() for o in self.offers],
-            "promo_codes": [p.to_dict() for p in self.promo_codes],
             "best_offer": self.best_offer.to_dict() if self.best_offer else None,
-            "best_promo": self.best_promo.to_dict() if self.best_promo else None,
             "checked_at": self.checked_at,
             "total_platforms": len(self.offers),
-            "total_promos": len(self.promo_codes),
         }
 
 
@@ -370,117 +323,6 @@ class CashbackMonitor:
         self._set_cached(merchant, merchant_cashback)
         
         return merchant_cashback
-    
-    async def find_best_cashback_and_promos(
-        self,
-        merchant: str,
-        platforms: Optional[list[CashbackPlatform]] = None,
-    ) -> MerchantCashback:
-        """
-        Find the best cashback offer AND promo codes for a merchant.
-        
-        Args:
-            merchant: Merchant/store name (e.g., "Amazon", "Target")
-            platforms: Specific platforms to check (default: all configured)
-            
-        Returns:
-            MerchantCashback with all offers, promo codes, and best highlighted
-        """
-        logger.info(f"")
-        logger.info(f"{'='*60}")
-        logger.info(f"[CASHBACK] Starting search for '{merchant}'")
-        logger.info(f"{'='*60}")
-        
-        # Check cache first
-        cached = self._get_cached(merchant)
-        if cached and cached.promo_codes:  # Only use cache if it has promo data
-            logger.info(f"[CACHE] Using cached result for '{merchant}'")
-            return cached
-        
-        platforms_to_check = platforms or self.platforms
-        platform_names = [p.value.title() for p in platforms_to_check]
-        logger.info(f"[SCRAPING] Checking {len(platforms_to_check)} platforms: {', '.join(platform_names)}")
-        
-        client = await self._get_client()
-        
-        # Query all platforms for cashback AND promos in parallel
-        cashback_tasks = []
-        promo_tasks = []
-        
-        for platform in platforms_to_check:
-            scraper = self._scrapers.get(platform)
-            if scraper:
-                logger.info(f"[SCRAPING] Queuing {platform.value.title()} for {merchant}...")
-                cashback_tasks.append(self._safe_scrape(scraper, merchant, client, platform))
-                # Check if scraper has promo code method
-                if hasattr(scraper, 'get_promo_codes'):
-                    promo_tasks.append(self._safe_scrape_promos(scraper, merchant, client, platform))
-        
-        logger.debug(f"Created {len(cashback_tasks)} cashback tasks, {len(promo_tasks)} promo tasks")
-        
-        # Run cashback and promo scraping in parallel
-        all_tasks = cashback_tasks + promo_tasks
-        all_results = await asyncio.gather(*all_tasks)
-        
-        # Split results
-        cashback_results = all_results[:len(cashback_tasks)]
-        promo_results = all_results[len(cashback_tasks):]
-        
-        # Aggregate results
-        merchant_cashback = MerchantCashback(
-            merchant=merchant,
-            checked_at=datetime.now().isoformat(),
-        )
-        
-        total_offers = 0
-        total_promos = 0
-        
-        for offers in cashback_results:
-            for offer in offers:
-                merchant_cashback.add_offer(offer)
-                total_offers += 1
-        
-        for promos in promo_results:
-            for promo in promos:
-                merchant_cashback.add_promo(promo)
-                total_promos += 1
-        
-        logger.info(f"")
-        logger.info(f"{'='*60}")
-        logger.info(f"[COMPLETE] Search finished for '{merchant}'")
-        logger.info(f"[RESULTS] Found {total_offers} cashback offer(s), {total_promos} promo code(s)")
-        if merchant_cashback.best_offer:
-            best = merchant_cashback.best_offer
-            logger.info(f"[BEST] {best.platform.value.title()}: {best.cashback_text}")
-        else:
-            logger.info(f"[BEST] No cashback offers available")
-        logger.info(f"{'='*60}")
-        
-        # Cache the result
-        self._set_cached(merchant, merchant_cashback)
-        
-        return merchant_cashback
-    
-    async def _safe_scrape_promos(
-        self,
-        scraper,
-        merchant: str,
-        client: httpx.AsyncClient,
-        platform: CashbackPlatform,
-    ) -> list[PromoCode]:
-        """Safely scrape promo codes, catching errors."""
-        platform_name = platform.value.title()
-        try:
-            logger.info(f"[{platform_name}] Searching promo codes for {merchant}...")
-            promos = await scraper.get_promo_codes(merchant, client)
-            if promos:
-                logger.info(f"[{platform_name}] ✓ Found {len(promos)} promo code(s) for {merchant}")
-            else:
-                logger.info(f"[{platform_name}] ✗ No promo codes for {merchant}")
-            return promos
-        except Exception as e:
-            logger.warning(f"[{platform_name}] ✗ Promo search failed for {merchant}: {e}")
-            return []
     
     async def _safe_scrape(
         self,
