@@ -97,12 +97,15 @@ class UserCard:
 
 @dataclass
 class User:
-    """User account."""
-    id: str
+    """User account - must match database.py User model."""
+    id: int
     email: str
     password_hash: str
     is_admin: bool = False
+    tax_rate: Optional[float] = None  # User's preferred tax rate
+    location: Optional[str] = None    # User's location (state/city)
     created_at: str = ""
+    updated_at: str = ""
 
 # =============================================================================
 # Application State
@@ -185,9 +188,12 @@ async def find_best_price(query: str) -> Optional[PriceResult]:
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             request_data = {"query": query, "include_cashback": True, "include_coupons": True}
-            if state.user_tax_rate is not None:
-                request_data["user_tax_rate"] = state.user_tax_rate
-                request_data["user_location"] = state.user_location
+            
+            # Get tax rate and location from logged-in user's profile
+            current_user = get_current_user()
+            if current_user and current_user.tax_rate is not None:
+                request_data["user_tax_rate"] = current_user.tax_rate
+                request_data["user_location"] = current_user.location
             
             response = await client.post(f"{API_URL}/api/v1/find-best-price", json=request_data)
             if response.status_code == 200:
