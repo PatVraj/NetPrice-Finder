@@ -20,10 +20,15 @@ class HoneyScraper(BaseScraper):
     
     Honey uses "Honey Gold" instead of direct cashback.
     Honey Gold can be redeemed for gift cards.
+    
+    NOTE: Temporarily disabled - joinhoney.com may be blocked or down.
     """
     
     PLATFORM_NAME = "honey"
     BASE_URL = "https://www.joinhoney.com"
+    
+    # Temporarily disable this scraper (site unreachable)
+    ENABLED = False
     
     # Slug overrides for merchants with non-standard URLs
     SLUG_OVERRIDES = {
@@ -38,6 +43,11 @@ class HoneyScraper(BaseScraper):
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Search Honey for merchant cashback/rewards."""
         from ..monitor import CashbackOffer, CashbackPlatform
+        
+        # Skip if disabled
+        if not self.ENABLED:
+            logger.debug(f"[Honey] Scraper disabled - skipping {merchant}")
+            return []
         
         offers = []
         
@@ -121,6 +131,10 @@ class HoneyScraper(BaseScraper):
     async def get_promo_codes(self, merchant: str, client: httpx.AsyncClient) -> list:
         """Get promo codes from Honey for a merchant."""
         from ..monitor import PromoCode, CashbackPlatform
+        
+        # Skip if disabled
+        if not self.ENABLED:
+            return []
         
         promos = []
         slugs_to_try = self._get_all_slugs(merchant)
