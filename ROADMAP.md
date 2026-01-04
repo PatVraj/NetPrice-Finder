@@ -362,6 +362,199 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 ---
 
+### Branch: `feature/ongoing-development`
+**Created:** 2026-01-05  
+**Merged:** Open  
+**Purpose:** Cashback scraper improvements and UI transparency fixes
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `b5d9675` | 2026-01-05 | 1 file | Add responsive UI design for all screen sizes |
+| `946ba91` | 2026-01-05 | 1 file | Modern UI refactor with auth and admin dashboard |
+| `10fae56` | 2026-01-05 | 9 files | Remove promo code functionality entirely |
+| `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
+| `608d808` | 2026-01-03 | 4 files | Add descriptive logging for backend progress |
+| `4ca4219` | 2026-01-03 | 2 files | Fix cashback offers transparency in UI |
+| `33fa32e` | 2026-01-03 | 2 files | Fix false positive matching in scrapers |
+| `0697291` | 2026-01-03 | 2 files | Add search page scraping strategy |
+| `c40a561` | 2026-01-03 | 2 files | Add slug overrides for Pandora, Ulta, etc. |
+| `1d78394` | 2026-01-03 | 6 files | Modularize cashback scrapers into package |
+
+#### Session: 2026-01-05 – Remove Promo Code Functionality
+
+**Commit:** `10fae56`  
+**Analysis:** Promo codes from cashback sites (Rakuten, TopCashback, etc.) are not real promo codes – they are just marketing "deals" that describe sales (e.g., "Up to 40% off select styles"). These provide no actionable value.
+
+**Changes Made:**
+1. **monitor.py:** Removed `PromoCode` dataclass, `promo_codes` field from `MerchantCashback`, `_safe_scrape_promos()` method, renamed `find_best_cashback_and_promos` to just use `find_best_cashback`
+2. **All 5 scrapers:** Removed `get_promo_codes()` and `_parse_promo_codes()` methods
+3. **net_price.py:** Removed `available_promo_codes` from `OptimizationResult`, removed `_found_promo_codes` tracking
+4. **server.py:** Removed `PromoCodeInfo`, `PromoSearchResult` classes, removed `promo_sources_checked` from `SearchTransparency`, removed `available_promo_codes` from `SavingsResponse`
+5. **main.py (frontend):** Removed `PromoCodeResult`, `PromoSearchResult` dataclasses, removed promo code parsing logic, removed "🎫 Promo Codes Found" UI section, removed "🏷️ Promo Code Sources" transparency section
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/monitor.py` | Removed PromoCode, promo-related methods |
+| `intelligence-core/cashback/scrapers/base.py` | Removed get_promo_codes() |
+| `intelligence-core/cashback/scrapers/rakuten.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/topcashback.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/honey.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/cashback/scrapers/befrugal.py` | Removed get_promo_codes(), _parse_promo_codes() |
+| `intelligence-core/optimizer/net_price.py` | Removed promo code collection/tracking |
+| `intelligence-core/api/server.py` | Removed PromoCodeInfo, promo response fields |
+| `app-frontend/main.py` | Removed promo code UI sections |
+
+**Code Removed:** ~700 lines of dead promo code functionality
+
+**Note:** The `intelligence-core/retailer/` module still has promo code infrastructure (StoredPromoCode, etc.) but it's not actively used. Left in place for potential future use with verified retailer promo codes.
+
+---
+
+#### Session: 2026-01-05 – Responsive UI Design
+
+**Commit:** `b5d9675`  
+**Feature:** Fully responsive design across all screen sizes
+
+**Changes Made:**
+1. **Extended CUSTOM_CSS:**
+   - Added responsive typography with `clamp()` for fluid sizing
+   - Added `.stats-grid` CSS Grid with 1→2→4 column breakpoints
+   - Added `.responsive-container` with max-width breakpoints
+   - Added mobile nav adjustments, card padding, table overflow
+
+2. **Responsive Navbar:**
+   - Fixed positioning at top with z-index
+   - Desktop nav links hidden on mobile (`hidden sm:block`)
+   - Mobile menu items shown in dropdown
+
+3. **Responsive Pages:**
+   - Hero search: `min-h-[calc(100vh-4rem)]`, responsive padding, fluid title
+   - Landing page: Responsive padding, smaller text on mobile
+   - Results page: Responsive padding, `break-words` for long names
+   - Login/Register: Responsive form padding and font sizes
+   - Admin dashboard: CSS Grid for stats, responsive tables
+   - Cards page: 1-2-3 column grid layout based on screen size
+   - Settings page: Responsive padding and spacing
+   - Footer: Centered on mobile, justified on desktop
+
+**Key CSS Patterns Applied:**
+- Padding: `px-4 sm:px-6 py-6 sm:py-8`
+- Font sizes: `text-2xl sm:text-3xl`
+- Card padding: `p-4 sm:p-6`
+- Card widths: `w-full sm:w-56` for grid items
+- Visibility: `hidden sm:block` for desktop-only elements
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `app-frontend/main.py` | 207 insertions, 74 deletions – responsive CSS + component updates |
+
+---
+
+#### Session: 2026-01-05 – Modern UI Refactor with Auth
+
+**Commit:** `946ba91`  
+**Feature:** Complete frontend redesign with authentication and admin dashboard
+
+**Changes Made:**
+1. **Modern Design System:**
+   - Glass morphism effects with backdrop blur
+   - Hero gradient background (emerald → slate → indigo)
+   - Smooth fade-in animations
+   - Stat cards with gradient backgrounds
+   - Clean typography with proper spacing
+
+2. **Authentication System:**
+   - Login page (`/login`) with email/password
+   - Register page (`/register`) with password confirmation
+   - Logout functionality via navbar dropdown
+   - User session storage with `app.storage.user`
+   - SHA256 password hashing
+   - Demo admin: `admin@netprice.local` / `admin123`
+
+3. **Admin Dashboard (`/admin`):**
+   - Stats cards: Retailers, Cashback Entries, Queries, Users
+   - Top Retailers table: Query volume per retailer
+   - Platform Status: Live/disabled status per cashback platform
+   - Users table: All registered users with admin badges
+
+4. **Removed All Coupon References:**
+   - "🏷️ We find coupons automatically" text removed
+   - Clean messaging focused on cashback comparison
+   - No more "coupon" terminology in UI
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `app-frontend/main.py` | Complete rewrite (508 insertions, 645 deletions) |
+
+**New UI Flow:**
+- Unauthenticated users → Landing page with Get Started/Login buttons
+- Authenticated users → Hero search with product URL input
+- Admin users → Full dashboard access via Admin link in navbar
+
+**New Components:**
+- `create_navbar()` – Responsive nav with auth-aware menu
+- `create_hero_search()` – Animated search for authenticated users
+- `create_landing()` – Landing page for unauthenticated users
+- `create_login()` / `create_register()` – Glass-styled auth forms
+- `create_admin()` – Full admin dashboard with tables
+- `create_results()` – Price breakdown with cashback comparison
+
+---
+
+#### Session: 2026-01-03 – Cashback Scraper Overhaul
+
+**Issues Fixed:**
+- 🐛 Pandora cashback not found (wrong URL slugs)
+- 🐛 API endpoints returning 404 for valid merchants
+- 🐛 False positive: FineJewelers 5% attributed to Pandora
+- 🐛 Rakuten 4% found in logs but UI showed "Not available"
+- ✨ Added descriptive logging for real-time backend progress
+
+**Root Causes & Solutions:**
+
+1. **Wrong URL Slugs:** Added `SLUG_OVERRIDES` and `SLUG_ALTERNATIVES` for merchants with non-obvious URLs:
+   - `pandora` → `pandora-jewelry`
+   - `ulta` → `ultabeauty`
+
+2. **Search Page Strategy:** Implemented `_search_page()` as primary scraping method:
+   - Rakuten: `/search?term=X&type=suggest`
+   - TopCashback: `/search/merchants/?s=X`
+   - More reliable than direct store page URLs
+
+3. **False Positive Matching:** Removed loose fallback logic that grabbed ANY rate when merchant name appeared on page
+
+4. **UI Transparency Fix:** ALL cashback offers now passed through to API:
+   - Added `_found_cashback_offers` list to optimizer
+   - Added `all_cashback_offers` field to `OptimizationResult`
+   - Server uses actual scraper results instead of guessing
+
+5. **Descriptive Logging:** Real-time progress updates:
+   - `[SCRAPING]` logs when platforms are queued and searched
+   - `[CASHBACK]` logs with ✓/✗ for found/not found
+   - `[OPTIMIZER]` logs for product extraction and savings calculation
+   - `[SUMMARY]` block at end with full breakdown
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/scrapers/rakuten.py` | Added `_search_page()`, `SLUG_OVERRIDES`, fixed regex |
+| `intelligence-core/cashback/scrapers/topcashback.py` | Added `_search_page()`, improved `_is_not_found()` |
+| `intelligence-core/cashback/scrapers/honey.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, `_get_all_slugs()` |
+| `intelligence-core/cashback/scrapers/befrugal.py` | Added `_search_page()`, `SLUG_OVERRIDES`, `_get_all_slugs()` |
+| `intelligence-core/cashback/scrapers/swagbucks.py` | Added `SLUG_OVERRIDES`, `_is_not_found()`, improved matching |
+| `intelligence-core/optimizer/net_price.py` | Store ALL offers, not just best; add `all_cashback_offers` |
+| `intelligence-core/api/server.py` | Use actual offers for transparency instead of guessing |
+| `app-frontend/main.py` | Enhanced UI progress with platform-by-platform status |
+
+**Result:** All 5 scrapers now have consistent search strategies and UI shows detailed progress
+
+---
+
 ## 🔮 Future Versions
 
 ### v0.2.0 – Core Infrastructure
@@ -438,5 +631,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-04 (Retailer Intelligence System)</em>
+  <em>Last updated: 2026-01-05 (Modern UI refactor with auth and admin dashboard)</em>
 </p>

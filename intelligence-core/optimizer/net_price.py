@@ -6,14 +6,14 @@ Given a product URL or description, calculates net cost after:
 1. Retailer price (and alternatives)
 2. Cashback platforms (Rakuten, Honey, TopCashback, etc.)
 3. Credit card rewards (optimal card for the category)
-4. Available coupons/promo codes
-5. PayPal/wallet offers
+4. PayPal/wallet offers
 """
 
 import os
 import re
 import json
 import asyncio
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Any
 from datetime import datetime
@@ -22,6 +22,8 @@ from urllib.parse import urlparse, quote_plus
 from enum import Enum
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -177,8 +179,8 @@ class OptimizationResult:
     # Best option
     best_option: Optional[RetailerOption] = None
     
-    # Promo codes found from cashback platforms
-    available_promo_codes: list[dict] = field(default_factory=list)
+    # All cashback offers found (for transparency - show what each platform returned)
+    all_cashback_offers: list[dict] = field(default_factory=list)
     
     # Comparison stats
     cheapest_gross: float = 0.0
@@ -196,7 +198,7 @@ class OptimizationResult:
             "query_type": self.query_type,
             "options": [o.to_dict() for o in self.options],
             "best_option": self.best_option.to_dict() if self.best_option else None,
-            "available_promo_codes": self.available_promo_codes,
+            "all_cashback_offers": self.all_cashback_offers,
             "cheapest_gross": self.cheapest_gross,
             "cheapest_net": self.cheapest_net,
             "max_savings": self.max_savings,
@@ -655,7 +657,7 @@ class NetPriceOptimizer:
             enable_coupon_testing: Whether to test coupons at checkout (slow)
             tax_rate: Estimated sales tax rate (e.g., 0.0825 for 8.25%)
             intelligence: OPTIONAL - RetailerIntelligence for persistent caching.
-                          If provided, cashback/promo data is cached in SQLite/Redis.
+                          If provided, cashback data is cached in SQLite/Redis.
         """
         self.card_wallet = card_wallet
         self.enable_coupon_testing = enable_coupon_testing
@@ -668,8 +670,8 @@ class NetPriceOptimizer:
         # Lazy imports to avoid circular dependencies
         self._cashback_monitor = None
         
-        # Store promo codes found during optimization
-        self._found_promo_codes: list[dict] = []
+        # Store ALL cashback offers found (for transparency in UI)
+        self._found_cashback_offers: list[dict] = []
     
     async def _get_cashback_monitor(self):
         """Lazy load cashback monitor."""
@@ -704,8 +706,12 @@ class NetPriceOptimizer:
         """
         start_time = asyncio.get_event_loop().time()
         
-        # Reset promo codes for new optimization
-        self._found_promo_codes = []
+        # Reset cashback offers for new optimization
+        self._found_cashback_offers = []
+        
+        logger.info(f"{'#'*70}")
+        logger.info(f"[OPTIMIZER] Starting price optimization for: {query[:80]}...")
+        logger.info(f"{'#'*70}")
         
         result = OptimizationResult(
             query=query,
@@ -720,7 +726,7 @@ class NetPriceOptimizer:
                 options = await self._optimize_search(query)
             
             result.options = options
-            result.available_promo_codes = self._found_promo_codes
+            result.all_cashback_offers = self._found_cashback_offers
             
             if options:
                 # Sort by net price
@@ -746,10 +752,12 @@ class NetPriceOptimizer:
         options = []
         
         # 1. Scrape product info
+        logger.info(f"[SCRAPING] Extracting product info from URL...")
         product = await self.product_scraper.scrape_url(url)
         
         if not product:
             # Create basic product from URL
+            logger.info(f"[SCRAPING] Using retailer detection fallback...")
             retailer_info = detect_retailer(url)
             product = ProductInfo(
                 name="Product",
@@ -759,8 +767,11 @@ class NetPriceOptimizer:
                 mcc_code=retailer_info.get("mcc") if retailer_info else None,
                 url=url,
             )
+        else:
+            logger.info(f"[PRODUCT] {product.name} - ${product.price:.2f} at {product.retailer}")
         
         # 2. Calculate savings for this retailer
+        logger.info(f"[SAVINGS] Calculating all discounts and cashback...")
         option = await self._calculate_savings(product)
         if option:
             options.append(option)
@@ -796,15 +807,22 @@ class NetPriceOptimizer:
         
         steps = []
         
-        # 1. Find best cashback AND promo codes
+        # 1. Find best cashback
         cashback_monitor = await self._get_cashback_monitor()
         retailer_name = product.retailer or "Unknown"
         
-        promo_codes_from_platforms = []
-        
         try:
-            # Get both cashback offers AND promo codes from all platforms
-            cashback_result = await cashback_monitor.find_best_cashback_and_promos(retailer_name)
+            # Get cashback offers from all platforms
+            cashback_result = await cashback_monitor.find_best_cashback(retailer_name)
+            
+            # Store ALL cashback offers for transparency (not just the best one)
+            for offer in cashback_result.offers:
+                self._found_cashback_offers.append({
+                    "platform": offer.platform.value,
+                    "rate": offer.effective_rate,
+                    "cashback_text": offer.cashback_text,
+                    "found": True,
+                })
             
             if cashback_result.best_offer:
                 offer = cashback_result.best_offer
@@ -816,22 +834,12 @@ class NetPriceOptimizer:
                     f"Go through {offer.platform.value.title()} for {offer.cashback_text}"
                 )
             
-            # Store promo codes for later use AND save to instance for API response
-            promo_codes_from_platforms = cashback_result.promo_codes
-            for promo in promo_codes_from_platforms:
-                self._found_promo_codes.append({
-                    "code": promo.code,
-                    "source": promo.platform.value,
-                    "description": promo.description,
-                    "discount_percent": promo.discount_percent,
-                    "discount_amount": promo.discount_amount,
-                })
-            
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[CASHBACK] Error during search: {e}")
         
         # 2. Find best credit card
         if self.card_wallet and product.category:
+            logger.info(f"[CARDS] Checking wallet for best card in category: {product.category}")
             try:
                 best_card, card_info = self.card_wallet.get_best_card(
                     product.category,
@@ -843,79 +851,14 @@ class NetPriceOptimizer:
                 savings.credit_card_rewards = card_info["cash_value"]
                 
                 rate_str = f"{card_info['rate']}%" if card_info["reward_type"] == "cashback" else f"{card_info['rate']}x"
+                logger.info(f"[CARDS] ✓ Best card: {best_card.issuer} {best_card.name} ({rate_str})")
                 steps.append(
                     f"Pay with {best_card.issuer} {best_card.name} ({rate_str} on {product.category})"
                 )
             except Exception:
-                pass
-        
-        # 3. Find coupons (from RetailMeNot + promo codes from cashback platforms)
-        all_coupon_codes = []
-        
-        # Add promo codes from cashback platforms (Rakuten, Honey, TopCashback, etc.)
-        for promo in promo_codes_from_platforms:
-            all_coupon_codes.append({
-                "code": promo.code,
-                "source": promo.platform.value.title(),
-                "terms": promo.description,
-                "discount_percent": promo.discount_percent,
-                "discount_amount": promo.discount_amount,
-            })
-        
-        # Also search traditional coupon sites
-        if product.url:
-            try:
-                retailmenot_coupons = await self.coupon_finder.find_coupons(retailer_name)
-                all_coupon_codes.extend(retailmenot_coupons)
-            except Exception:
-                pass
-        
-        # Test coupons if enabled
-        if self.enable_coupon_testing and product.url and all_coupon_codes:
-            try:
-                best_coupon = None
-                best_discount = 0
-                
-                for coupon in all_coupon_codes[:5]:  # Test top 5
-                    result = await self.coupon_finder.test_coupon(
-                        product.url,
-                        coupon["code"],
-                        product.price,
-                    )
-                    
-                    if result.works and result.discount_amount > best_discount:
-                        best_coupon = result
-                        best_coupon.source = coupon.get("source", "Unknown")
-                        best_discount = result.discount_amount
-                
-                if best_coupon:
-                    savings.coupon_code = best_coupon.code
-                    savings.coupon_savings = best_coupon.discount_amount
-                    steps.append(f"Apply coupon code: {best_coupon.code} (from {best_coupon.source})")
-                    
-            except Exception:
-                pass
-        elif all_coupon_codes:
-            # Even without testing, suggest the best-looking promo code
-            best_promo = None
-            best_value = 0
-            
-            for coupon in all_coupon_codes:
-                value = coupon.get("discount_percent", 0) or coupon.get("discount_amount", 0) or 0
-                if value > best_value:
-                    best_value = value
-                    best_promo = coupon
-            
-            if best_promo:
-                savings.coupon_code = best_promo["code"]
-                # Estimate savings
-                if best_promo.get("discount_percent"):
-                    savings.coupon_savings = product.price * (best_promo["discount_percent"] / 100)
-                elif best_promo.get("discount_amount"):
-                    savings.coupon_savings = best_promo["discount_amount"]
-                
-                source = best_promo.get("source", "Unknown")
-                steps.append(f"Try promo code: {best_promo['code']} (from {source})")
+                logger.info(f"[CARDS] No matching card in wallet")
+        else:
+            logger.info(f"[CARDS] No card wallet configured")
         
         # Calculate totals
         savings.calculate_totals()
@@ -925,6 +868,20 @@ class NetPriceOptimizer:
             steps.append("No special savings found - pay normally")
         
         steps.append(f"Net effective price: ${savings.net_price:.2f}")
+        
+        # Log final summary
+        logger.info(f"")
+        logger.info(f"{'#'*70}")
+        logger.info(f"[SUMMARY] Optimization complete for {retailer_name}")
+        logger.info(f"[SUMMARY] Product: ${savings.product_price:.2f} → Net: ${savings.net_price:.2f}")
+        logger.info(f"[SUMMARY] Total Savings: ${savings.total_savings:.2f}")
+        if savings.cashback_platform:
+            logger.info(f"[SUMMARY]   • Cashback: {savings.cashback_platform} {savings.cashback_percent}% = ${savings.cashback_amount:.2f}")
+        if savings.coupon_code:
+            logger.info(f"[SUMMARY]   • Coupon: {savings.coupon_code} = ${savings.coupon_savings:.2f}")
+        if savings.credit_card_name:
+            logger.info(f"[SUMMARY]   • Card: {savings.credit_card_name} = ${savings.credit_card_rewards:.2f}")
+        logger.info(f"{'#'*70}")
         
         return RetailerOption(
             retailer=retailer_name,

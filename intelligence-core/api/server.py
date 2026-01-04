@@ -65,6 +65,9 @@ class ProductSearchRequest(BaseModel):
     query: str = Field(..., description="Product URL or search term")
     include_cashback: bool = Field(True, description="Search cashback platforms")
     include_coupons: bool = Field(True, description="Search for coupons")
+    # User-provided tax info (from browser geolocation)
+    user_tax_rate: Optional[float] = Field(None, description="Tax rate from user settings (0-15%)")
+    user_location: Optional[str] = Field(None, description="User's location (state/city)")
     
 class CardInfo(BaseModel):
     """Credit card information for the user's wallet."""
@@ -86,13 +89,18 @@ class QuickPriceRequest(BaseModel):
     tax_rate: float = Field(0, ge=0, le=1)
     shipping: float = Field(0, ge=0)
 
-class PromoCodeInfo(BaseModel):
-    """A promo/coupon code found from a platform."""
-    code: str
-    source: str
-    description: Optional[str] = None
-    discount_percent: Optional[float] = None
-    discount_amount: Optional[float] = None
+class CashbackSearchResult(BaseModel):
+    """Result from checking a single cashback platform."""
+    platform: str
+    rate: float = 0.0
+    found: bool = False
+    error: Optional[str] = None
+
+class SearchTransparency(BaseModel):
+    """Transparency into what was searched and found."""
+    cashback_platforms_checked: List[CashbackSearchResult] = Field(default_factory=list)
+    tax_source: str = "default"  # "browser", "ip", "default"
+    search_duration_ms: int = 0
 
 class SavingsResponse(BaseModel):
     """Response with savings breakdown."""
@@ -102,7 +110,6 @@ class SavingsResponse(BaseModel):
     original_url: str
     coupon_code: Optional[str]
     coupon_discount: float
-    available_promo_codes: List[PromoCodeInfo] = Field(default_factory=list)
     tax: float
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -111,12 +118,16 @@ class SavingsResponse(BaseModel):
     cashback_platform: Optional[str]
     cashback_percent: float
     cashback_value: float
+    # All cashback rates found (for transparency)
+    all_cashback_rates: List[dict] = Field(default_factory=list)
     card_name: Optional[str]
     card_reward_percent: float
     card_reward_value: float
     net_price: float
     total_savings: float
     savings_percent: float
+    # Search transparency
+    search_transparency: Optional[SearchTransparency] = None
     timestamp: datetime
 
 class CashbackRatesRequest(BaseModel):
@@ -229,28 +240,45 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
     2. Searches cashback platforms (Rakuten, TopCashback, etc.)
     3. Finds applicable coupons
     4. Calculates credit card rewards (if user has cards configured)
-    5. Auto-detects location for tax calculation
-    6. Returns the TRUE net price after all savings
+    5. Uses user-provided location for tax, or auto-detects from IP
+    6. Returns the TRUE net price after all savings with full transparency
     """
+    import time
+    start_time = time.time()
+    
     try:
         logger.info(f"Processing query: {request.query}")
         
-        # Get client IP for tax detection
-        client_ip = req.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        if not client_ip:
-            client_ip = req.client.host if req.client else None
+        # Track search transparency
+        cashback_results = []
+        tax_source = "default"
         
-        # Detect tax rate based on location
+        # Determine tax rate - prefer user-provided, then IP, then default
         tax_rate = 0.0
         tax_location = None
-        try:
-            async with TaxCalculator() as tax_calc:
-                tax_info = await tax_calc.get_tax_for_ip(client_ip)
-                tax_rate = tax_info.combined_rate / 100  # Convert to decimal
-                tax_location = tax_info.state_name or tax_info.state_code
-                logger.info(f"Detected tax: {tax_info.combined_rate}% for {tax_location} (IP: {client_ip})")
-        except Exception as e:
-            logger.warning(f"Tax detection failed: {e}, using 0%")
+        
+        if request.user_tax_rate is not None:
+            # User provided tax rate from browser settings
+            tax_rate = request.user_tax_rate / 100  # Convert from percentage
+            tax_location = request.user_location or "User Settings"
+            tax_source = "browser"
+            logger.info(f"Using user-provided tax: {request.user_tax_rate}% for {tax_location}")
+        else:
+            # Try IP-based detection
+            client_ip = req.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            if not client_ip:
+                client_ip = req.client.host if req.client else None
+            
+            try:
+                async with TaxCalculator() as tax_calc:
+                    tax_info = await tax_calc.get_tax_for_ip(client_ip)
+                    tax_rate = tax_info.combined_rate / 100  # Convert to decimal
+                    tax_location = tax_info.state_name or tax_info.state_code
+                    tax_source = "ip"
+                    logger.info(f"Detected tax: {tax_info.combined_rate}% for {tax_location} (IP: {client_ip})")
+            except Exception as e:
+                logger.warning(f"Tax detection failed: {e}, using 0%")
+                tax_source = "default"
         
         # Create optimizer with user's wallet (if they have cards) and detected tax rate
         wallet = app.state.user_wallet if app.state.user_wallet.cards else None
@@ -272,17 +300,43 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
             
             logger.info(f"Best option: {product.name}, price=${savings.product_price}, net=${savings.net_price}")
             
-            # Build promo code list for response
-            promo_codes = [
-                PromoCodeInfo(
-                    code=p.get("code", ""),
-                    source=p.get("source", ""),
-                    description=p.get("description"),
-                    discount_percent=p.get("discount_percent"),
-                    discount_amount=p.get("discount_amount"),
-                )
-                for p in result.available_promo_codes
-            ]
+            # Build cashback transparency data
+            # Use ALL offers from optimization (not just the best one)
+            platforms_checked = ["Rakuten", "TopCashback", "Honey", "BeFrugal", "Swagbucks"]
+            all_rates = []
+            
+            # Build a map of platform -> offer from actual scraping results
+            found_offers = {
+                offer["platform"].lower(): offer
+                for offer in result.all_cashback_offers
+            }
+            
+            for platform in platforms_checked:
+                platform_key = platform.lower()
+                if platform_key in found_offers:
+                    # This platform was actually found during scraping
+                    offer = found_offers[platform_key]
+                    is_best = (savings.cashback_platform and 
+                              platform_key == savings.cashback_platform.lower())
+                    cashback_results.append(CashbackSearchResult(
+                        platform=platform,
+                        rate=offer["rate"],
+                        found=True
+                    ))
+                    all_rates.append({
+                        "platform": platform,
+                        "rate": offer["rate"],
+                        "is_best": is_best
+                    })
+                else:
+                    # Platform was checked but no offer found
+                    cashback_results.append(CashbackSearchResult(
+                        platform=platform,
+                        rate=0.0,
+                        found=False
+                    ))
+            
+            search_duration = int((time.time() - start_time) * 1000)
             
             return SavingsResponse(
                 product_name=product.name,
@@ -291,7 +345,6 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 original_url=product.url,
                 coupon_code=savings.coupon_code,
                 coupon_discount=savings.coupon_savings,
-                available_promo_codes=promo_codes,
                 tax=savings.tax,
                 tax_rate=tax_rate * 100,  # Convert to percentage
                 tax_location=tax_location,
@@ -300,12 +353,18 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 cashback_platform=savings.cashback_platform,
                 cashback_percent=savings.cashback_percent,
                 cashback_value=savings.cashback_amount,
+                all_cashback_rates=all_rates,
                 card_name=savings.credit_card_name,
                 card_reward_percent=savings.credit_card_rate,
                 card_reward_value=savings.credit_card_rewards,
                 net_price=savings.net_price,
                 total_savings=savings.total_savings,
                 savings_percent=savings.savings_percent,
+                search_transparency=SearchTransparency(
+                    cashback_platforms_checked=cashback_results,
+                    tax_source=tax_source,
+                    search_duration_ms=search_duration
+                ),
                 timestamp=datetime.now()
             )
     except HTTPException:
@@ -322,23 +381,26 @@ async def get_cashback_rates(request: CashbackRatesRequest):
     """
     try:
         async with CashbackMonitor() as monitor:
-            result = await monitor.get_best_cashback(request.merchant)
+            result = await monitor.find_best_cashback(request.merchant)
+            
+            best_rate = result.best_offer.effective_rate if result.best_offer else 0.0
             
             return CashbackRatesResponse(
                 merchant=request.merchant,
-                best_platform=result.best_offer.platform if result.best_offer else None,
-                best_rate=result.best_rate,
+                best_platform=result.best_offer.platform.value if result.best_offer else None,
+                best_rate=best_rate,
                 rates=[
                     {
-                        "platform": offer.platform,
-                        "rate": offer.rate,
-                        "type": offer.rate_type,
-                        "terms": offer.terms
+                        "platform": offer.platform.value,
+                        "rate": offer.effective_rate,
+                        "type": "percent" if offer.cashback_percent else "fixed",
+                        "terms": offer.cashback_text or ""
                     }
                     for offer in result.offers
                 ]
             )
     except Exception as e:
+        logger.error(f"Error getting cashback rates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
@@ -516,9 +578,14 @@ async def get_intelligence_stats():
     
     try:
         stats = await app.state.intelligence.get_stats()
+        top_retailers = await app.state.intelligence.get_top_retailers(10)
+        platform_status = await app.state.intelligence.get_platform_status()
+        
         return {
             "available": True,
-            **stats
+            **stats,
+            "top_retailers": top_retailers,
+            "platform_status": platform_status,
         }
     except Exception as e:
         logger.error(f"Error getting intelligence stats: {e}")

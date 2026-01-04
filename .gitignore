@@ -47,6 +47,9 @@ env/
 logs/
 *.log
 
+# NiceGUI runtime storage (session data)
+.nicegui/
+
 # Data directories (created at runtime)
 app-frontend/data/
 scraper-engine/data/

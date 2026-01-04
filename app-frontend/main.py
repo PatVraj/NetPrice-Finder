@@ -1,11 +1,12 @@
 """
 Net Price Finder - Frontend Application
-NiceGUI Dashboard for finding the TRUE cheapest price
+Modern, minimalistic NiceGUI dashboard for finding the TRUE cheapest price
 
-Paste a product link → Get the real net price after all savings stack:
-- Cashback (Rakuten, TopCashback, Honey, etc.)
-- Coupons (auto-discovered)
-- Credit card rewards (optional, only YOUR cards)
+Features:
+- User authentication (login/register/logout)
+- Admin dashboard for retailer data visualization
+- Cashback comparison across 5+ platforms
+- Credit card reward optimization
 """
 
 import os
@@ -13,12 +14,24 @@ from nicegui import ui, app
 import httpx
 import redis.asyncio as redis
 import asyncio
-from contextlib import asynccontextmanager
-import base64
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
+import hashlib
+import secrets
+import logging
+
+# Optional: Use bcrypt if available, fallback to sha256 with warning
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
+    logging.warning(
+        "⚠️ bcrypt not installed. Using SHA256 for password hashing. "
+        "For production, install bcrypt: pip install bcrypt"
+    )
 
 # =============================================================================
 # Configuration
@@ -26,23 +39,28 @@ from datetime import datetime
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://ollama:11434")
-SCRAPER_API_URL = os.getenv("SCRAPER_API_URL", "http://scraper-engine:5000")
 API_URL = os.getenv("API_URL", "http://localhost:8000")
-FIREFLY_API_URL = os.getenv("FIREFLY_API_URL", "http://firefly:8080")
+STORAGE_SECRET = os.getenv("STORAGE_SECRET", "netprice-dev-secret-change-in-production")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
 # =============================================================================
-# Application State
+# Data Models
 # =============================================================================
 
 @dataclass
-class PromoCodeResult:
-    """A promo code found from cashback platforms."""
-    code: str
-    source: str
-    description: Optional[str] = None
-    discount_percent: Optional[float] = None
-    discount_amount: Optional[float] = None
+class CashbackSearchResult:
+    """Result from checking a single cashback platform."""
+    platform: str
+    rate: float = 0.0
+    found: bool = False
+    error: Optional[str] = None
+
+@dataclass
+class SearchTransparency:
+    """Transparency into what was searched and found."""
+    cashback_platforms_checked: List[CashbackSearchResult] = field(default_factory=list)
+    tax_source: str = "default"
+    search_duration_ms: int = 0
 
 @dataclass
 class PriceResult:
@@ -53,7 +71,6 @@ class PriceResult:
     original_url: str = ""
     coupon_code: Optional[str] = None
     coupon_discount: float = 0.0
-    available_promo_codes: List[PromoCodeResult] = field(default_factory=list)
     tax: float = 0.0
     tax_rate: float = 0.0
     tax_location: Optional[str] = None
@@ -62,12 +79,14 @@ class PriceResult:
     cashback_platform: Optional[str] = None
     cashback_percent: float = 0.0
     cashback_value: float = 0.0
+    all_cashback_rates: List[dict] = field(default_factory=list)
     card_name: Optional[str] = None
     card_reward_percent: float = 0.0
     card_reward_value: float = 0.0
     net_price: float = 0.0
     total_savings: float = 0.0
     savings_percent: float = 0.0
+    search_transparency: Optional[SearchTransparency] = None
 
 @dataclass 
 class UserCard:
@@ -77,36 +96,106 @@ class UserCard:
     base_rate: float
     highlights: List[str] = field(default_factory=list)
 
+@dataclass
+class User:
+    """User account."""
+    id: str
+    email: str
+    password_hash: str
+    is_admin: bool = False
+    created_at: str = ""
+
+# =============================================================================
+# Application State
+# =============================================================================
+
 class AppState:
     """Global application state."""
     redis_client: Optional[redis.Redis] = None
-    scraper_frame: str = ""
-    is_scraping: bool = False
-    is_loading: bool = False
-    command_history: list = []
     current_result: Optional[PriceResult] = None
     user_cards: List[UserCard] = []
-    popular_cards: List[UserCard] = []
+    user_tax_rate: Optional[float] = None
+    user_location: Optional[str] = None
+    users_db: Dict[str, User] = {}
 
 state = AppState()
+
+# Demo admin user - only created when DEMO_MODE=true
+if DEMO_MODE:
+    logging.info("🧪 DEMO_MODE enabled - creating demo admin user")
+    state.users_db["admin@netprice.local"] = User(
+        id="1",
+        email="admin@netprice.local",
+        password_hash="$demo$admin123",  # Special marker for demo user
+        is_admin=True,
+        created_at=datetime.now().isoformat()
+    )
+
+# =============================================================================
+# Authentication Helpers
+# =============================================================================
+
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt (preferred) or SHA256 with salt."""
+    if BCRYPT_AVAILABLE:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    else:
+        # Fallback: salted SHA256 (not ideal, but better than plain SHA256)
+        salt = secrets.token_hex(16)
+        hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+        return f"$sha256${salt}${hashed}"
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against its hash."""
+    # Handle demo user special case
+    if password_hash.startswith("$demo$"):
+        return DEMO_MODE and password == password_hash[6:]
+    
+    if BCRYPT_AVAILABLE and password_hash.startswith("$2"):
+        # bcrypt hash
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    elif password_hash.startswith("$sha256$"):
+        # Salted SHA256 fallback
+        parts = password_hash.split("$")
+        if len(parts) == 4:
+            salt = parts[2]
+            expected_hash = parts[3]
+            return hashlib.sha256((salt + password).encode()).hexdigest() == expected_hash
+    else:
+        # Legacy plain SHA256 (for migration compatibility)
+        return hashlib.sha256(password.encode()).hexdigest() == password_hash
+    return False
+
+def get_current_user() -> Optional[User]:
+    """Get the currently logged in user."""
+    user_email = app.storage.user.get('email')
+    if user_email and user_email in state.users_db:
+        return state.users_db[user_email]
+    return None
+
+def is_authenticated() -> bool:
+    """Check if user is authenticated."""
+    return app.storage.user.get('authenticated', False)
+
+def is_admin() -> bool:
+    """Check if current user is admin."""
+    user = get_current_user()
+    return user.is_admin if user else False
 
 # =============================================================================
 # Redis Connection
 # =============================================================================
 
 async def init_redis() -> Optional[redis.Redis]:
-    """Initialize Redis connection."""
+    """Initialize async Redis connection."""
     try:
-        client = redis.Redis(
-            host=REDIS_HOST,
-            port=REDIS_PORT,
-            decode_responses=False
-        )
+        # Using redis.asyncio.Redis - ping() is awaitable
+        client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=False)
+        # Verify connection with async ping
         await client.ping()
-        print(f"✅ Connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
         return client
     except Exception as e:
-        print(f"⚠️ Redis connection failed: {e}")
+        logging.warning(f"⚠️ Redis connection failed: {e}")
         return None
 
 # =============================================================================
@@ -116,504 +205,662 @@ async def init_redis() -> Optional[redis.Redis]:
 async def find_best_price(query: str) -> Optional[PriceResult]:
     """Call the optimizer API to find best price."""
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for scraping
-            response = await client.post(
-                f"{API_URL}/api/v1/find-best-price",
-                json={"query": query, "include_cashback": True, "include_coupons": True}
-            )
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            request_data = {"query": query, "include_cashback": True, "include_coupons": True}
+            if state.user_tax_rate is not None:
+                request_data["user_tax_rate"] = state.user_tax_rate
+                request_data["user_location"] = state.user_location
+            
+            response = await client.post(f"{API_URL}/api/v1/find-best-price", json=request_data)
             if response.status_code == 200:
                 data = response.json()
                 
-                # Parse promo codes
-                promo_codes = []
-                for p in data.get("available_promo_codes", []):
-                    promo_codes.append(PromoCodeResult(
-                        code=p.get("code", ""),
-                        source=p.get("source", ""),
-                        description=p.get("description"),
-                        discount_percent=p.get("discount_percent"),
-                        discount_amount=p.get("discount_amount"),
-                    ))
+                transparency = None
+                if data.get("search_transparency"):
+                    t = data["search_transparency"]
+                    cashback_results = [
+                        CashbackSearchResult(
+                            platform=c.get("platform", ""),
+                            rate=c.get("rate", 0.0),
+                            found=c.get("found", False),
+                            error=c.get("error")
+                        )
+                        for c in t.get("cashback_platforms_checked", [])
+                    ]
+                    transparency = SearchTransparency(
+                        cashback_platforms_checked=cashback_results,
+                        tax_source=t.get("tax_source", "default"),
+                        search_duration_ms=t.get("search_duration_ms", 0)
+                    )
                 
-                # Build PriceResult, excluding timestamp and handling promo codes
-                result_data = {k: v for k, v in data.items() if k not in ['timestamp', 'available_promo_codes']}
-                result_data['available_promo_codes'] = promo_codes
-                
+                result_data = {k: v for k, v in data.items() if k not in ['timestamp', 'search_transparency']}
+                result_data['search_transparency'] = transparency
                 return PriceResult(**result_data)
-            return None
     except Exception as e:
         print(f"API Error: {e}")
-        return None
+    return None
 
-async def quick_calculate(
-    product_price: float,
-    cashback_percent: float = 0,
-    card_reward_percent: float = 0,
-    coupon_discount: float = 0,
-    tax_rate: float = 0.0825,
-    shipping: float = 0
-) -> dict:
-    """Quick price calculation without scraping."""
+async def get_retailer_stats() -> Dict[str, Any]:
+    """Fetch retailer stats for admin dashboard."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{API_URL}/api/v1/quick-price",
-                json={
-                    "product_price": product_price,
-                    "cashback_percent": cashback_percent,
-                    "card_reward_percent": card_reward_percent,
-                    "coupon_discount": coupon_discount,
-                    "tax_rate": tax_rate,
-                    "shipping": shipping
-                }
-            )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(f"{API_URL}/api/v1/intelligence/stats")
             if response.status_code == 200:
                 return response.json()
     except Exception as e:
-        print(f"Quick calc error: {e}")
-    
-    # Fallback to local calculation
-    gross = product_price - coupon_discount + (product_price * tax_rate) + shipping
-    cashback = gross * (cashback_percent / 100)
-    card_rewards = gross * (card_reward_percent / 100)
-    net = gross - cashback - card_rewards
-    total_savings = product_price - net + coupon_discount
-    
-    return {
-        "product_price": product_price,
-        "coupon_discount": coupon_discount,
-        "tax": product_price * tax_rate,
-        "shipping": shipping,
-        "gross_total": gross,
-        "cashback": cashback,
-        "card_rewards": card_rewards,
-        "net_price": net,
-        "total_savings": total_savings,
-        "savings_percent": (total_savings / product_price * 100) if product_price > 0 else 0
+        print(f"Stats API Error: {e}")
+    return {}
+
+# =============================================================================
+# Custom CSS
+# =============================================================================
+
+CUSTOM_CSS = """
+<style>
+    :root {
+        --primary: #10b981;
+        --surface: #111827;
+        --surface-light: #1f2937;
     }
-
-async def get_user_wallet() -> List[UserCard]:
-    """Get user's card wallet from API."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{API_URL}/api/v1/wallet")
-            if response.status_code == 200:
-                data = response.json()
-                return [
-                    UserCard(
-                        name=c["name"],
-                        issuer=c["issuer"],
-                        base_rate=c["base_rate"],
-                        highlights=[f"{bc['rate']}x {bc['category']}" for bc in c.get("bonus_categories", [])]
-                    )
-                    for c in data.get("cards", [])
-                ]
-    except Exception:
-        pass
-    return []
-
-async def get_popular_cards() -> List[UserCard]:
-    """Get list of popular cards from API."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{API_URL}/api/v1/popular-cards")
-            if response.status_code == 200:
-                data = response.json()
-                return [
-                    UserCard(
-                        name=c["name"],
-                        issuer=c["issuer"],
-                        base_rate=c["base_rate"],
-                        highlights=c.get("highlights", [])
-                    )
-                    for c in data.get("cards", [])
-                ]
-    except Exception:
-        pass
-    return []
-
-async def add_card_to_wallet(card_name: str) -> bool:
-    """Add a popular card to user's wallet."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(f"{API_URL}/api/v1/wallet/add-popular/{card_name}")
-            return response.status_code == 200
-    except Exception:
-        return False
-
-async def remove_card_from_wallet(card_name: str) -> bool:
-    """Remove a card from user's wallet."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.delete(f"{API_URL}/api/v1/wallet/{card_name}")
-            return response.status_code == 200
-    except Exception:
-        return False
+    
+    /* Reset and base responsive styles */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+    
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100vh;
+        overflow-x: hidden;
+    }
+    
+    /* Responsive typography */
+    html {
+        font-size: 16px;
+    }
+    
+    @media (max-width: 640px) {
+        html { font-size: 14px; }
+    }
+    
+    /* Glass effect */
+    .glass {
+        background: rgba(31, 41, 55, 0.8);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    
+    /* Hero background */
+    .hero-bg {
+        background: linear-gradient(135deg, #064e3b 0%, #0f172a 50%, #1e1b4b 100%);
+        min-height: calc(100vh - 4rem);
+    }
+    
+    /* Text glow */
+    .glow {
+        text-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+    }
+    
+    /* Stat cards */
+    .stat-card {
+        background: linear-gradient(145deg, #1f2937 0%, #111827 100%);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* Animations */
+    .fade-in {
+        animation: fadeIn 0.4s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Search box */
+    .search-box {
+        background: rgba(17, 24, 39, 0.9) !important;
+        border: 2px solid rgba(16, 185, 129, 0.2) !important;
+        transition: border-color 0.2s !important;
+    }
+    
+    .search-box:focus-within {
+        border-color: #10b981 !important;
+    }
+    
+    /* Responsive hero text */
+    .hero-title {
+        font-size: clamp(2rem, 8vw, 3.75rem);
+        line-height: 1.1;
+    }
+    
+    .hero-subtitle {
+        font-size: clamp(1rem, 3vw, 1.25rem);
+    }
+    
+    /* Responsive containers */
+    .responsive-container {
+        width: 100%;
+        max-width: 100%;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .responsive-container {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .responsive-container {
+            max-width: 1024px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    }
+    
+    @media (min-width: 1280px) {
+        .responsive-container {
+            max-width: 1280px;
+        }
+    }
+    
+    /* Responsive stat cards grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(1, 1fr);
+        gap: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+    
+    /* Responsive tables */
+    .q-table {
+        width: 100%;
+        overflow-x: auto;
+    }
+    
+    /* Mobile nav adjustments */
+    @media (max-width: 640px) {
+        .nav-links {
+            display: none;
+        }
+        
+        .mobile-menu-btn {
+            display: block !important;
+        }
+    }
+    
+    /* Card responsive padding */
+    .card-responsive {
+        padding: 1rem;
+    }
+    
+    @media (min-width: 640px) {
+        .card-responsive {
+            padding: 1.5rem;
+        }
+    }
+    
+    /* Flex wrap for mobile */
+    .flex-responsive {
+        flex-wrap: wrap;
+    }
+    
+    /* Full width inputs on mobile */
+    @media (max-width: 640px) {
+        .nicegui-input, .nicegui-select {
+            width: 100% !important;
+        }
+    }
+</style>
+"""
 
 # =============================================================================
 # UI Components
 # =============================================================================
 
-def create_header():
-    """Create the application header."""
-    with ui.header().classes('bg-gradient-to-r from-emerald-800 to-teal-900'):
-        with ui.row().classes('w-full items-center px-4'):
-            ui.link('💰 Net Price Finder', '/').classes('text-2xl font-bold text-white no-underline')
-            ui.label('Find the TRUE cheapest price').classes('text-emerald-200 ml-4 text-sm')
-            ui.space()
-            with ui.row().classes('gap-4'):
-                ui.button('My Cards', on_click=lambda: ui.navigate.to('/cards'), icon='credit_card').props('flat text-color=white')
-                ui.button('Settings', on_click=lambda: ui.navigate.to('/settings'), icon='settings').props('flat text-color=white')
+def create_navbar():
+    """Create the navigation bar."""
+    with ui.header().classes('bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50 fixed w-full top-0 z-50'):
+        with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 items-center justify-between'):
+            with ui.link('/', target='_self').classes('no-underline'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.html('<span class="text-2xl">💰</span>', sanitize=False)
+                    ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
+            
+            with ui.row().classes('items-center gap-2 sm:gap-4'):
+                if is_authenticated():
+                    user = get_current_user()
+                    # Hide text links on mobile, show on sm+
+                    ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    ui.link('Cards', '/cards').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    
+                    if is_admin():
+                        ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
+                    
+                    with ui.button(icon='account_circle').props('flat round size=sm color=gray'):
+                        with ui.menu().classes('bg-gray-800'):
+                            ui.menu_item(f'{user.email}').props('disable').classes('text-gray-400 text-xs sm:text-sm')
+                            ui.separator()
+                            # Mobile-only nav items
+                            ui.menu_item('Search', lambda: ui.navigate.to('/')).classes('sm:hidden')
+                            ui.menu_item('Cards', lambda: ui.navigate.to('/cards')).classes('sm:hidden')
+                            if is_admin():
+                                ui.menu_item('Admin', lambda: ui.navigate.to('/admin')).classes('sm:hidden')
+                            ui.menu_item('Settings', lambda: ui.navigate.to('/settings'))
+                            ui.menu_item('Logout', lambda: do_logout())
+                else:
+                    ui.button('Login', on_click=lambda: ui.navigate.to('/login')).props('flat text-color=white size=sm')
+                    ui.button('Sign Up', on_click=lambda: ui.navigate.to('/register')).props('color=primary size=sm unelevated')
 
-def create_search_hero():
-    """Create the main search hero section."""
-    with ui.card().classes('w-full bg-gradient-to-br from-gray-800 to-gray-900 border-none'):
-        with ui.column().classes('w-full items-center py-8 px-4'):
-            ui.label('🔍 Paste a product link').classes('text-3xl font-bold text-white mb-2')
-            ui.label('We\'ll find cashback, coupons, and the best card to use').classes('text-gray-400 mb-6')
+def do_logout():
+    """Log out the current user."""
+    app.storage.user.clear()
+    ui.notify('Logged out', type='info')
+    ui.navigate.to('/login')
+
+def create_hero_search():
+    """Create the hero search section."""
+    with ui.element('div').classes('w-full hero-bg min-h-[calc(100vh-4rem)] flex items-center'):
+        with ui.column().classes('w-full max-w-3xl mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+            ui.html('<h1 class="hero-title font-bold text-white text-center mb-4 glow tracking-tight">Your True Price</h1>', sanitize=False)
+            ui.label('Compare cashback across 5 platforms instantly').classes(
+                'hero-subtitle text-gray-400 text-center mb-8 sm:mb-12'
+            )
             
-            with ui.row().classes('w-full max-w-3xl gap-2'):
-                search_input = ui.input(
-                    placeholder='https://amazon.com/dp/... or "Nike Air Max 90"'
-                ).classes('flex-grow text-lg').props('outlined dark dense bg-color=grey-9')
-                
-                search_button = ui.button('Find Best Price', icon='search').props('color=positive size=lg')
-                
-            # Loading indicator
-            loading_spinner = ui.spinner('dots', size='lg', color='positive').classes('mt-4')
-            loading_spinner.visible = False
+            with ui.card().classes('w-full glass rounded-2xl p-2'):
+                with ui.row().classes('w-full items-center gap-2'):
+                    search_input = ui.input(
+                        placeholder='Paste any product URL...'
+                    ).classes('flex-grow search-box rounded-xl').props('borderless dense')
+                    
+                    search_btn = ui.button(icon='arrow_forward').props('color=primary round unelevated')
             
-            # Progress log area
-            progress_container = ui.column().classes('w-full max-w-3xl mt-4')
-            progress_container.visible = False
+            with ui.column().classes('w-full mt-8 items-center') as loading_area:
+                loading_area.visible = False
+                ui.spinner('dots', size='lg', color='primary')
+                progress_label = ui.label('Analyzing...').classes('text-gray-400 mt-4')
             
-            with progress_container:
-                progress_log = ui.log(max_lines=10).classes(
-                    'w-full h-32 bg-gray-900 text-green-400 font-mono text-sm rounded border border-gray-700'
-                )
+            with ui.row().classes('mt-12 sm:mt-20 gap-6 sm:gap-12 flex-wrap justify-center'):
+                for icon, val, lbl in [('💵', '5', 'Cashback Sites'), ('💳', '50+', 'Cards Supported'), ('⚡', '<3s', 'Analysis Time')]:
+                    with ui.column().classes('items-center min-w-[80px]'):
+                        ui.html(f'<span class="text-xl sm:text-2xl">{icon}</span>', sanitize=False)
+                        ui.label(val).classes('text-lg sm:text-xl font-bold text-white mt-2')
+                        ui.label(lbl).classes('text-gray-500 text-xs sm:text-sm text-center')
             
-            async def update_progress(message: str):
-                """Add a message to the progress log."""
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                progress_log.push(f"[{timestamp}] {message}")
-            
-            async def do_search():
+            async def search():
                 query = search_input.value.strip()
                 if not query:
-                    ui.notify('Please enter a product URL or search term', type='warning')
+                    ui.notify('Enter a product URL', type='warning')
                     return
                 
-                loading_spinner.visible = True
-                progress_container.visible = True
-                progress_log.clear()
-                state.is_loading = True
-                search_button.disable()
+                loading_area.visible = True
+                search_btn.disable()
                 
                 try:
-                    if query.startswith('http'):
-                        await update_progress(f"🔗 Analyzing URL: {query[:60]}...")
-                        await update_progress("🌐 Connecting to scraper engine...")
-                        await asyncio.sleep(0.1)  # Let UI update
-                        
-                        await update_progress("📄 Loading page content...")
-                        await asyncio.sleep(0.1)
-                        
-                        # Call the real API
-                        result = await find_best_price(query)
-                        
-                        if result:
-                            await update_progress("✅ Product info extracted!")
-                            await update_progress(f"💰 Found price: ${result.product_price:.2f}")
-                            if result.cashback_percent > 0:
-                                await update_progress(f"💵 Cashback available: {result.cashback_percent}%")
-                            if result.coupon_code:
-                                await update_progress(f"🏷️ Coupon found: {result.coupon_code}")
-                            if result.available_promo_codes:
-                                await update_progress(f"🎫 Found {len(result.available_promo_codes)} promo codes!")
-                            await update_progress("🎯 Calculating best net price...")
-                            await asyncio.sleep(0.3)
-                            
-                            state.current_result = result
-                            ui.navigate.to('/results')
-                        else:
-                            await update_progress("❌ Could not parse product information")
-                            await update_progress("💡 Try a different URL or check if the site is supported")
-                            ui.notify('Could not analyze this product. The scraper may not support this site yet.', type='warning')
+                    progress_label.text = 'Extracting product info...'
+                    await asyncio.sleep(0.2)
+                    progress_label.text = 'Checking cashback platforms...'
+                    
+                    result = await find_best_price(query)
+                    if result:
+                        state.current_result = result
+                        ui.navigate.to('/results')
                     else:
-                        await update_progress(f"🔍 Searching for: {query}")
-                        ui.notify('Product search coming soon! Try pasting a direct URL.', type='info')
-                        progress_container.visible = False
-                        
+                        ui.notify('Could not analyze product', type='warning')
                 except Exception as e:
-                    await update_progress(f"❌ Error: {str(e)}")
-                    ui.notify(f'Error: {str(e)}', type='negative')
+                    ui.notify(str(e), type='negative')
                 finally:
-                    loading_spinner.visible = False
-                    state.is_loading = False
-                    search_button.enable()
+                    loading_area.visible = False
+                    search_btn.enable()
             
-            search_button.on('click', do_search)
-            
-            # Quick tips
-            with ui.row().classes('mt-8 gap-4 flex-wrap justify-center'):
-                with ui.card().classes('bg-gray-800 border-gray-700 px-4 py-2'):
-                    ui.label('💳 Add your cards for extra savings').classes('text-sm text-gray-300')
-                with ui.card().classes('bg-gray-800 border-gray-700 px-4 py-2'):
-                    ui.label('🏷️ We find coupons automatically').classes('text-sm text-gray-300')
-                with ui.card().classes('bg-gray-800 border-gray-700 px-4 py-2'):
-                    ui.label('💵 Compare 5+ cashback sites').classes('text-sm text-gray-300')
+            search_btn.on('click', search)
 
-def create_quick_calculator():
-    """Create quick price calculator widget."""
-    with ui.card().classes('w-full'):
-        ui.label('🧮 Quick Calculator').classes('text-lg font-semibold mb-4')
-        
-        with ui.row().classes('w-full gap-4 flex-wrap'):
-            price_input = ui.number('Product Price', value=100, min=0, format='%.2f', prefix='$').classes('w-32')
-            cashback_input = ui.number('Cashback %', value=5, min=0, max=50, format='%.1f', suffix='%').classes('w-28')
-            coupon_input = ui.number('Coupon', value=10, min=0, format='%.2f', prefix='$').classes('w-28')
-            card_input = ui.number('Card Reward %', value=0, min=0, max=10, format='%.1f', suffix='%').classes('w-28')
-        
-        result_label = ui.label('').classes('text-2xl font-bold text-green-400 mt-4')
-        savings_label = ui.label('').classes('text-gray-400')
-        
-        async def calculate():
-            result = await quick_calculate(
-                product_price=price_input.value or 0,
-                cashback_percent=cashback_input.value or 0,
-                coupon_discount=coupon_input.value or 0,
-                card_reward_percent=card_input.value or 0,
-                tax_rate=0.0825
-            )
-            result_label.text = f"Net Price: ${result['net_price']:.2f}"
-            savings_label.text = f"You save ${result['total_savings']:.2f} ({result['savings_percent']:.1f}%)"
-        
-        ui.button('Calculate', on_click=calculate, icon='calculate').props('color=primary').classes('mt-2')
+def create_landing():
+    """Create landing page for non-authenticated users."""
+    with ui.element('div').classes('w-full hero-bg min-h-[calc(100vh-4rem)] flex items-center justify-center'):
+        with ui.column().classes('items-center px-4 sm:px-6 py-12'):
+            ui.html('<span class="text-5xl sm:text-6xl mb-4 sm:mb-6">💰</span>', sanitize=False)
+            ui.html('<h1 class="hero-title font-bold text-white text-center mb-4 glow tracking-tight">NetPrice Finder</h1>', sanitize=False)
+            ui.label('Find the TRUE cheapest price after all savings').classes('hero-subtitle text-gray-400 text-center mb-8 sm:mb-10 max-w-lg px-4')
+            
+            with ui.row().classes('gap-3 sm:gap-4 flex-wrap justify-center'):
+                ui.button('Get Started', on_click=lambda: ui.navigate.to('/register')).props('color=primary size=md unelevated')
+                ui.button('Login', on_click=lambda: ui.navigate.to('/login')).props('flat text-color=white size=md')
 
-def create_how_it_works():
-    """Create how it works section."""
-    with ui.card().classes('w-full'):
-        ui.label('🎯 How It Works').classes('text-xl font-bold mb-4')
-        
-        with ui.row().classes('w-full gap-8 flex-wrap justify-center'):
-            # Step 1
-            with ui.column().classes('items-center w-48'):
-                ui.icon('link', size='xl', color='primary')
-                ui.label('1. Paste Link').classes('font-semibold mt-2')
-                ui.label('Drop any product URL').classes('text-sm text-gray-400 text-center')
-            
-            # Step 2
-            with ui.column().classes('items-center w-48'):
-                ui.icon('search', size='xl', color='primary')
-                ui.label('2. We Search').classes('font-semibold mt-2')
-                ui.label('Cashback, coupons, prices').classes('text-sm text-gray-400 text-center')
-            
-            # Step 3
-            with ui.column().classes('items-center w-48'):
-                ui.icon('credit_card', size='xl', color='primary')
-                ui.label('3. Best Card').classes('font-semibold mt-2')
-                ui.label('Optimal card from YOUR wallet').classes('text-sm text-gray-400 text-center')
-            
-            # Step 4
-            with ui.column().classes('items-center w-48'):
-                ui.icon('savings', size='xl', color='positive')
-                ui.label('4. Net Price').classes('font-semibold mt-2')
-                ui.label('TRUE cost after all savings').classes('text-sm text-gray-400 text-center')
-
-def create_results_display():
-    """Create the results display page content."""
+def create_results():
+    """Create results display."""
     if not state.current_result:
-        ui.label('No results yet. Search for a product first.').classes('text-gray-400')
-        ui.button('← Back to Search', on_click=lambda: ui.navigate.to('/')).props('flat')
+        ui.navigate.to('/')
         return
     
     r = state.current_result
     
-    with ui.card().classes('w-full max-w-2xl mx-auto'):
-        # Header
-        with ui.row().classes('w-full items-center mb-4'):
-            ui.button('←', on_click=lambda: ui.navigate.to('/'), icon='arrow_back').props('flat')
-            ui.label(f'Results for {r.retailer}').classes('text-xl font-bold')
+    with ui.column().classes('w-full max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 fade-in'):
+        ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
-        # Product Name
-        if hasattr(r, 'product_name') and r.product_name:
-            ui.label(r.product_name).classes('text-lg text-gray-300 mb-4')
+        with ui.card().classes('w-full glass rounded-2xl p-4 sm:p-6 mt-4'):
+            ui.label(r.retailer.upper()).classes('text-emerald-400 text-xs font-semibold tracking-widest')
+            ui.label(r.product_name or 'Product').classes('text-lg sm:text-xl font-bold text-white mt-1 break-words')
+            ui.label(f'${r.product_price:.2f}').classes('text-xl sm:text-2xl font-bold text-gray-500 mt-2')
         
-        # Original Price
-        with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-            ui.label('Product Price').classes('text-gray-400')
-            ui.label(f'${r.product_price:.2f}').classes('text-lg')
-        
-        # Coupon
-        if r.coupon_discount > 0:
-            with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('local_offer', color='amber')
-                    ui.label(f'Coupon: {r.coupon_code or "Applied"}').classes('text-amber-400')
-                ui.label(f'-${r.coupon_discount:.2f}').classes('text-lg text-green-400')
-        
-        # Tax with location info
-        with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-            with ui.column().classes('gap-0'):
-                tax_label = 'Tax'
-                if hasattr(r, 'tax_location') and r.tax_location:
-                    tax_label = f'Tax ({r.tax_location})'
-                if hasattr(r, 'tax_rate') and r.tax_rate > 0:
-                    tax_label += f' @ {r.tax_rate:.1f}%'
-                ui.label(tax_label).classes('text-gray-400')
-            ui.label(f'+${r.tax:.2f}').classes('text-lg text-gray-400')
-        
-        if r.shipping > 0:
-            with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-                ui.label('Shipping').classes('text-gray-400')
-                ui.label(f'+${r.shipping:.2f}').classes('text-lg text-gray-400')
-        
-        # Subtotal
-        with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700 bg-gray-800 -mx-4 px-4'):
-            ui.label('Subtotal').classes('font-semibold')
-            ui.label(f'${r.gross_total:.2f}').classes('text-lg font-semibold')
-        
-        # Cashback
-        if r.cashback_platform:
-            with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('attach_money', color='green')
-                    ui.label(f'{r.cashback_platform} ({r.cashback_percent}%)').classes('text-green-400')
-                ui.label(f'-${r.cashback_value:.2f}').classes('text-lg text-green-400')
-        
-        # Card Rewards
-        if r.card_name:
-            with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('credit_card', color='blue')
-                    ui.label(f'{r.card_name} ({r.card_reward_percent}%)').classes('text-blue-400')
-                ui.label(f'-${r.card_reward_value:.2f}').classes('text-lg text-green-400')
-        else:
-            with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('credit_card_off', color='gray')
-                    ui.label('No cards configured').classes('text-gray-500')
-                ui.button('Add Cards', on_click=lambda: ui.navigate.to('/cards')).props('flat color=primary size=sm')
-        
-        # Net Price (Final)
-        with ui.card().classes('w-full bg-gradient-to-r from-green-900 to-emerald-900 mt-4'):
-            with ui.row().classes('w-full justify-between items-center'):
-                ui.label('💰 NET PRICE').classes('text-xl font-bold text-white')
-                ui.label(f'${r.net_price:.2f}').classes('text-3xl font-bold text-green-400')
+        with ui.card().classes('w-full glass rounded-2xl p-4 sm:p-6 mt-4'):
+            ui.label('Breakdown').classes('text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider')
             
-            with ui.row().classes('w-full justify-end mt-2'):
-                ui.label(f'You save ${r.total_savings:.2f} ({r.savings_percent:.1f}%)').classes('text-green-300')
-        
-        # Action Buttons
-        with ui.row().classes('w-full gap-4 mt-6 justify-center'):
-            if r.coupon_code:
-                async def copy_coupon():
-                    await ui.run_javascript(f'navigator.clipboard.writeText("{r.coupon_code}")')
-                    ui.notify(f'Coupon "{r.coupon_code}" copied!', type='positive')
-                ui.button(f'Copy Coupon: {r.coupon_code}', on_click=copy_coupon, icon='content_copy').props('color=amber')
+            lines = [('Product', f'${r.product_price:.2f}', 'text-white')]
             
+            if r.coupon_discount > 0:
+                lines.append((f'Coupon', f'-${r.coupon_discount:.2f}', 'text-emerald-400'))
+            if r.tax > 0:
+                lines.append((f'Tax ({r.tax_location or ""})', f'+${r.tax:.2f}', 'text-gray-400'))
+            if r.shipping > 0:
+                lines.append(('Shipping', f'+${r.shipping:.2f}', 'text-gray-400'))
             if r.cashback_platform:
-                ui.button(f'Go to {r.cashback_platform}', icon='open_in_new').props('color=positive')
+                lines.append((f'{r.cashback_platform} ({r.cashback_percent}%)', f'-${r.cashback_value:.2f}', 'text-emerald-400'))
+            if r.card_name:
+                lines.append((f'{r.card_name}', f'-${r.card_reward_value:.2f}', 'text-blue-400'))
+            
+            for label, value, color in lines:
+                with ui.row().classes('w-full justify-between py-3 border-b border-gray-700/30'):
+                    ui.label(label).classes('text-gray-300 text-sm')
+                    ui.label(value).classes(f'font-medium {color}')
         
-        # Available Promo Codes Section
-        if hasattr(r, 'available_promo_codes') and r.available_promo_codes:
-            with ui.card().classes('w-full mt-4 bg-gray-800'):
-                with ui.row().classes('items-center gap-2 mb-4'):
-                    ui.icon('sell', color='amber')
-                    ui.label(f'🎫 {len(r.available_promo_codes)} Promo Codes Found').classes('text-lg font-semibold text-amber-400')
-                
-                with ui.column().classes('gap-2 w-full'):
-                    for promo in r.available_promo_codes[:5]:  # Show top 5
-                        with ui.card().classes('w-full bg-gray-700'):
-                            with ui.row().classes('w-full justify-between items-center'):
-                                with ui.column().classes('gap-0'):
-                                    with ui.row().classes('items-center gap-2'):
-                                        ui.label(promo.code).classes('font-mono font-bold text-amber-300')
-                                        ui.badge(promo.source).props('color=blue')
-                                    if promo.description:
-                                        ui.label(promo.description).classes('text-sm text-gray-400')
-                                
-                                async def copy_promo(code=promo.code):
-                                    await ui.run_javascript(f'navigator.clipboard.writeText("{code}")')
-                                    ui.notify(f'Code "{code}" copied!', type='positive')
-                                ui.button('Copy', on_click=copy_promo, icon='content_copy').props('flat size=sm')
+        with ui.card().classes('w-full bg-gradient-to-r from-emerald-900/60 to-teal-900/60 rounded-2xl p-6 mt-4 border border-emerald-800/30'):
+            with ui.row().classes('w-full justify-between items-center'):
+                ui.label('Net Price').classes('text-lg text-emerald-200')
+                ui.label(f'${r.net_price:.2f}').classes('text-4xl font-bold text-white')
+            ui.label(f'You save ${r.total_savings:.2f} ({r.savings_percent:.1f}%)').classes('text-emerald-300 text-sm mt-2')
+        
+        if r.search_transparency and r.search_transparency.cashback_platforms_checked:
+            with ui.expansion('Cashback Comparison', icon='compare_arrows').classes('w-full mt-4'):
+                with ui.column().classes('gap-2'):
+                    for cb in sorted(r.search_transparency.cashback_platforms_checked, key=lambda x: -x.rate):
+                        is_best = r.cashback_platform and cb.platform.lower() == r.cashback_platform.lower()
+                        with ui.row().classes('w-full justify-between items-center py-2'):
+                            with ui.row().classes('items-center gap-2'):
+                                icon_color = 'emerald' if cb.found else 'gray'
+                                ui.icon('check_circle' if cb.found else 'cancel', size='xs', color=icon_color)
+                                ui.label(cb.platform).classes('text-sm ' + ('text-white' if cb.found else 'text-gray-500'))
+                                if is_best:
+                                    ui.badge('Best').props('color=positive dense')
+                            ui.label(f'{cb.rate}%' if cb.found else '—').classes('text-sm ' + ('text-emerald-400 font-medium' if cb.found else 'text-gray-600'))
 
-def create_cards_page_content():
-    """Create the card wallet management page."""
-    ui.label('💳 My Credit Cards').classes('text-2xl font-bold mb-2')
-    ui.label('Add your cards to see which one gives the best rewards').classes('text-gray-400 mb-6')
+def create_login():
+    """Create login form."""
+    with ui.column().classes('w-full max-w-sm mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+        ui.label('Welcome back').classes('text-2xl sm:text-3xl font-bold text-white mb-2')
+        ui.label('Sign in to continue').classes('text-gray-400 mb-6 sm:mb-8')
+        
+        with ui.card().classes('w-full glass rounded-2xl p-6 sm:p-8'):
+            email = ui.input('Email').classes('w-full mb-4')
+            password = ui.input('Password', password=True, password_toggle_button=True).classes('w-full mb-6')
+            
+            btn = ui.button('Sign In').props('color=primary unelevated').classes('w-full')
+            
+            async def login():
+                e, p = email.value.strip(), password.value
+                if not e or not p:
+                    ui.notify('Fill in all fields', type='warning')
+                    return
+                user = state.users_db.get(e)
+                if user and verify_password(p, user.password_hash):
+                    app.storage.user['authenticated'] = True
+                    app.storage.user['email'] = e
+                    ui.notify('Welcome!', type='positive')
+                    ui.navigate.to('/')
+                else:
+                    ui.notify('Invalid credentials', type='negative')
+            
+            btn.on('click', login)
+        
+        with ui.row().classes('mt-6 gap-2'):
+            ui.label("No account?").classes('text-gray-400 text-sm')
+            ui.link('Sign up', '/register').classes('text-emerald-400 text-sm no-underline')
+
+def create_register():
+    """Create registration form."""
+    with ui.column().classes('w-full max-w-sm mx-auto px-4 sm:px-6 py-12 sm:py-20 items-center'):
+        ui.label('Create account').classes('text-2xl sm:text-3xl font-bold text-white mb-2')
+        ui.label('Start saving today').classes('text-gray-400 mb-6 sm:mb-8')
+        
+        with ui.card().classes('w-full glass rounded-2xl p-6 sm:p-8'):
+            email = ui.input('Email').classes('w-full mb-4')
+            password = ui.input('Password', password=True, password_toggle_button=True).classes('w-full mb-4')
+            confirm = ui.input('Confirm', password=True, password_toggle_button=True).classes('w-full mb-6')
+            
+            btn = ui.button('Create Account').props('color=primary unelevated').classes('w-full')
+            
+            async def register():
+                e, p, c = email.value.strip(), password.value, confirm.value
+                if not e or not p:
+                    ui.notify('Fill in all fields', type='warning')
+                    return
+                if p != c:
+                    ui.notify('Passwords do not match', type='warning')
+                    return
+                if e in state.users_db:
+                    ui.notify('Email already registered', type='warning')
+                    return
+                
+                state.users_db[e] = User(
+                    id=secrets.token_hex(8),
+                    email=e,
+                    password_hash=hash_password(p),
+                    is_admin=False,
+                    created_at=datetime.now().isoformat()
+                )
+                app.storage.user['authenticated'] = True
+                app.storage.user['email'] = e
+                ui.notify('Account created!', type='positive')
+                ui.navigate.to('/')
+            
+            btn.on('click', register)
+        
+        with ui.row().classes('mt-6 gap-2'):
+            ui.label("Have an account?").classes('text-gray-400 text-sm')
+            ui.link('Sign in', '/login').classes('text-emerald-400 text-sm no-underline')
+
+async def create_admin():
+    """Create admin dashboard with real data from SQLite."""
+    if not is_admin():
+        ui.navigate.to('/')
+        return
     
-    # Current cards
-    with ui.card().classes('w-full mb-6'):
-        ui.label('Your Cards').classes('text-lg font-semibold mb-4')
-        
-        if not state.user_cards:
-            with ui.column().classes('items-center py-8'):
-                ui.icon('credit_card_off', size='xl', color='gray')
-                ui.label('No cards added yet').classes('text-gray-400 mt-2')
-                ui.label('Add cards below to see optimal rewards').classes('text-sm text-gray-500')
-        else:
-            with ui.column().classes('gap-2 w-full'):
-                for card in state.user_cards:
-                    with ui.card().classes('w-full bg-gray-800'):
-                        with ui.row().classes('w-full justify-between items-center'):
-                            with ui.column():
-                                ui.label(card.name).classes('font-semibold')
-                                ui.label(card.issuer).classes('text-sm text-gray-400')
-                                if card.highlights:
-                                    ui.label(' • '.join(card.highlights[:2])).classes('text-xs text-green-400')
-                            
-                            async def remove_card(name=card.name):
-                                state.user_cards = [c for c in state.user_cards if c.name != name]
-                                ui.notify(f'Removed {name}', type='info')
-                                ui.navigate.reload()
-                            
-                            ui.button(icon='delete', on_click=remove_card).props('flat color=negative')
+    # Fetch real stats from API
+    stats_data = await get_retailer_stats()
+    db_stats = stats_data.get("database", {})
+    top_retailers = stats_data.get("top_retailers", [])
+    platform_status = stats_data.get("platform_status", [])
     
-    # Popular cards to add
-    with ui.card().classes('w-full'):
-        ui.label('Popular Cards').classes('text-lg font-semibold mb-4')
-        ui.label('Quick-add from our database').classes('text-sm text-gray-400 mb-4')
+    with ui.column().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
+        ui.label('Admin Dashboard').classes('text-2xl sm:text-3xl font-bold text-white mb-6 sm:mb-8')
         
-        # Hardcoded popular cards for demo
-        popular = [
-            UserCard("Chase Sapphire Preferred", "Chase", 1.0, ["3x Dining", "3x Travel", "2x Streaming"]),
-            UserCard("Amex Gold", "American Express", 1.0, ["4x Restaurants", "4x Groceries", "3x Flights"]),
-            UserCard("Citi Double Cash", "Citi", 2.0, ["2% on everything"]),
-            UserCard("Chase Freedom Flex", "Chase", 1.0, ["5% Rotating", "3x Dining", "3x Drugstores"]),
-            UserCard("Discover it", "Discover", 1.0, ["5% Rotating categories"]),
-            UserCard("Amazon Prime Visa", "Chase", 5.0, ["5% Amazon", "2% Restaurants"]),
-        ]
+        # Stats cards with real data
+        total_retailers = db_stats.get("total_retailers", 0)
+        total_cashback = db_stats.get("total_cashback_offers", 0)
+        total_queries = db_stats.get("total_queries", 0)
         
-        with ui.row().classes('gap-4 flex-wrap'):
-            for card in popular:
-                # Skip if already in wallet
-                if any(c.name == card.name for c in state.user_cards):
-                    continue
-                    
-                with ui.card().classes('w-64 bg-gray-800 hover:bg-gray-700 cursor-pointer'):
-                    with ui.column():
-                        ui.label(card.name).classes('font-semibold')
-                        ui.label(card.issuer).classes('text-sm text-gray-400')
-                        ui.label(' • '.join(card.highlights[:2])).classes('text-xs text-green-400 mt-1')
+        with ui.element('div').classes('stats-grid w-full mb-6 sm:mb-8'):
+            for label, value, icon, color in [
+                ('Retailers', str(total_retailers), 'store', 'emerald'),
+                ('Cashback Entries', str(total_cashback), 'attach_money', 'blue'),
+                ('Total Queries', f'{total_queries:,}', 'search', 'purple'),
+                ('Users', str(len(state.users_db)), 'people', 'amber'),
+            ]:
+                with ui.card().classes('stat-card rounded-xl p-4 sm:p-5'):
+                    with ui.row().classes('items-center gap-3 sm:gap-4'):
+                        ui.icon(icon, size='md', color=color)
+                        with ui.column().classes('gap-0'):
+                            ui.label(value).classes('text-xl sm:text-2xl font-bold text-white')
+                            ui.label(label).classes('text-gray-400 text-xs')
+        
+        # Top Retailers table with real data
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Top Retailers').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            
+            columns = [
+                {'name': 'rank', 'label': '#', 'field': 'rank', 'align': 'left'},
+                {'name': 'name', 'label': 'Retailer', 'field': 'name', 'align': 'left'},
+                {'name': 'queries', 'label': 'Queries', 'field': 'queries', 'align': 'right'},
+                {'name': 'avg_cashback', 'label': 'Avg CB', 'field': 'avg_cashback', 'align': 'right'},
+            ]
+            
+            # Use real data or show empty state
+            if top_retailers:
+                ui.table(columns=columns, rows=top_retailers).classes('w-full').props('dark flat dense')
+            else:
+                ui.label('No retailer data yet. Run some searches to populate.').classes('text-gray-400 text-sm')
+        
+        # Platform Status with real data
+        with ui.card().classes('w-full glass rounded-xl p-6 mt-6'):
+            ui.label('Platform Status').classes('text-lg font-semibold text-white mb-4')
+            
+            # Default platforms if no data
+            if not platform_status:
+                platform_status = [
+                    {'name': 'Rakuten', 'active': True, 'success_rate': '—'},
+                    {'name': 'TopCashback', 'active': True, 'success_rate': '—'},
+                    {'name': 'Honey', 'active': True, 'success_rate': '—'},
+                    {'name': 'BeFrugal', 'active': True, 'success_rate': '—'},
+                    {'name': 'Swagbucks', 'active': True, 'success_rate': '—'},
+                ]
+            
+            for platform in platform_status:
+                name = platform.get('name', 'Unknown')
+                active = platform.get('active', False)
+                rate = platform.get('success_rate_display', platform.get('success_rate', '—'))
+                reliable = platform.get('reliable', True)
+                
+                with ui.row().classes('w-full justify-between items-center py-2 sm:py-3 border-b border-gray-700/30 flex-wrap gap-2'):
+                    with ui.row().classes('items-center gap-2 sm:gap-3'):
+                        ui.icon('circle', size='xs', color='green' if active else 'red')
+                        ui.label(name).classes('text-white text-sm sm:text-base')
+                    ui.label('Active' if active else 'Inactive').classes('text-gray-400 text-xs sm:text-sm hidden sm:block')
+                    ui.label(rate).classes('text-emerald-400 font-medium text-sm sm:text-base')
+        
+        # Users section (from in-memory state)
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
+            ui.label('Users').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            
+            for u in state.users_db.values():
+                with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700/30 flex-wrap gap-2'):
+                    ui.label(u.email).classes('text-white text-sm sm:text-base break-all')
+                    ui.badge('Admin' if u.is_admin else 'User').props(f'color={"positive" if u.is_admin else "gray"}')
+                    ui.label(u.created_at[:10]).classes('text-gray-500 text-xs sm:text-sm hidden sm:block')
+
+def create_cards():
+    """Create cards page."""
+    # Redirect if not authenticated
+    if not is_authenticated():
+        ui.navigate.to('/login')
+        return
+    
+    cards_container = None
+    
+    def render_wallet():
+        """Render the wallet cards list."""
+        nonlocal cards_container
+        if cards_container:
+            cards_container.clear()
+        
+        with cards_container:
+            if not state.user_cards:
+                with ui.column().classes('items-center py-6 sm:py-8'):
+                    ui.icon('credit_card_off', size='xl', color='gray')
+                    ui.label('No cards added').classes('text-gray-400 mt-4')
+            else:
+                for i, card in enumerate(state.user_cards):
+                    with ui.row().classes('w-full justify-between items-center p-3 sm:p-4 bg-gray-800/50 rounded-lg mb-2 flex-wrap gap-2'):
+                        with ui.column():
+                            ui.label(card.name).classes('text-white font-medium text-sm sm:text-base')
+                            ui.label(card.issuer).classes('text-gray-400 text-xs sm:text-sm')
                         
-                        async def add_card(name=card.name, c=card):
-                            if c not in state.user_cards:
-                                state.user_cards.append(c)
-                                ui.notify(f'Added {name}!', type='positive')
-                                ui.navigate.reload()
+                        def remove_card(index=i, card_name=card.name):
+                            state.user_cards.pop(index)
+                            ui.notify(f'Removed {card_name}', type='info')
+                            render_wallet()
                         
-                        ui.button('Add', on_click=add_card, icon='add').props('flat color=primary size=sm').classes('mt-2')
+                        ui.button(icon='close', on_click=remove_card).props('flat round size=sm color=gray')
+    
+    with ui.column().classes('w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
+        ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
+        
+        ui.label('My Cards').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-6 sm:mb-8')
+        
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Your Wallet').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            cards_container = ui.column().classes('w-full')
+            render_wallet()
+        
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
+            ui.label('Add Cards').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            
+            cards = [
+                UserCard("Chase Sapphire Preferred", "Chase", 1.0, ["3x Dining", "3x Travel"]),
+                UserCard("Amex Gold", "Amex", 1.0, ["4x Dining", "4x Groceries"]),
+                UserCard("Citi Double Cash", "Citi", 2.0, ["2% Everything"]),
+            ]
+            
+            with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4'):
+                for c in cards:
+                    with ui.card().classes('bg-gray-800/50 hover:bg-gray-700/50 transition p-4 rounded-xl cursor-pointer'):
+                        ui.label(c.name).classes('text-white font-medium text-sm')
+                        ui.label(c.issuer).classes('text-gray-400 text-xs')
+                        ui.label(' · '.join(c.highlights)).classes('text-emerald-400 text-xs mt-2')
+                        
+                        async def add(card=c):
+                            state.user_cards.append(card)
+                            ui.notify(f'Added {card.name}', type='positive')
+                        
+                        ui.button('Add', on_click=add).props('flat color=primary size=sm').classes('mt-3')
+
+def create_settings():
+    """Create settings page."""
+    # Redirect if not authenticated
+    if not is_authenticated():
+        ui.navigate.to('/login')
+        return
+    
+    def on_location_change(e):
+        state.user_location = e.value
+        ui.notify(f'Location set to {e.value}', type='positive')
+    
+    with ui.column().classes('w-full max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
+        ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
+        
+        ui.label('Settings').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-6 sm:mb-8')
+        
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Location').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            
+            states = ["California", "Texas", "New York", "Florida", "Oregon"]
+            ui.select(
+                states, 
+                label='State', 
+                value=state.user_location,
+                on_change=on_location_change
+            ).classes('w-full')
 
 def create_footer():
-    """Create the application footer."""
-    with ui.footer().classes('bg-gray-900'):
-        with ui.row().classes('w-full justify-between items-center px-4'):
-            ui.label('Net Price Finder v0.5.0').classes('text-gray-500 text-sm')
-            with ui.row().classes('gap-4'):
-                ui.link('Privacy', '#').classes('text-gray-500 text-sm')
-                ui.link('GitHub', 'https://github.com').classes('text-gray-500 text-sm')
+    """Create footer."""
+    with ui.element('footer').classes('w-full bg-gray-900/50 border-t border-gray-800/50 mt-auto'):
+        with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 justify-center sm:justify-between items-center'):
+            ui.label('© 2026 NetPrice').classes('text-gray-500 text-xs sm:text-sm')
 
 # =============================================================================
 # Pages
@@ -621,87 +868,92 @@ def create_footer():
 
 @ui.page('/')
 async def main_page():
-    """Main search page."""
-    state.redis_client = await init_redis()
-    
+    ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    create_header()
-    
-    with ui.column().classes('w-full p-4 gap-6 max-w-5xl mx-auto'):
-        create_search_hero()
-        create_quick_calculator()
-        create_how_it_works()
-    
-    create_footer()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        if is_authenticated():
+            create_hero_search()
+        else:
+            create_landing()
+        create_footer()
 
 @ui.page('/results')
 async def results_page():
-    """Results display page."""
+    ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    create_header()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_results()
+        create_footer()
+
+@ui.page('/login')
+async def login_page():
+    ui.add_head_html(CUSTOM_CSS)
+    ui.dark_mode().enable()
     
-    with ui.column().classes('w-full p-4 gap-4'):
-        create_results_display()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_login()
+        create_footer()
+
+@ui.page('/register')
+async def register_page():
+    ui.add_head_html(CUSTOM_CSS)
+    ui.dark_mode().enable()
     
-    create_footer()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_register()
+        create_footer()
+
+@ui.page('/admin')
+async def admin_page():
+    ui.add_head_html(CUSTOM_CSS)
+    ui.dark_mode().enable()
+    
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        await create_admin()
+        create_footer()
 
 @ui.page('/cards')
 async def cards_page():
-    """Card wallet management page."""
+    ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    create_header()
-    
-    with ui.column().classes('w-full p-4 gap-4 max-w-4xl mx-auto'):
-        ui.button('← Back', on_click=lambda: ui.navigate.to('/'), icon='arrow_back').props('flat')
-        create_cards_page_content()
-    
-    create_footer()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_cards()
+        create_footer()
 
 @ui.page('/settings')
 async def settings_page():
-    """Settings page."""
+    ui.add_head_html(CUSTOM_CSS)
     ui.dark_mode().enable()
     
-    create_header()
-    
-    with ui.column().classes('w-full p-4 gap-4 max-w-2xl mx-auto'):
-        ui.button('← Back', on_click=lambda: ui.navigate.to('/'), icon='arrow_back').props('flat')
-        
-        ui.label('⚙️ Settings').classes('text-2xl font-bold')
-        
-        with ui.card().classes('w-full'):
-            ui.label('Tax Rate').classes('font-semibold')
-            ui.slider(min=0, max=15, step=0.25, value=8.25).props('label-always')
-            
-        with ui.card().classes('w-full'):
-            ui.label('Default Cashback Platforms').classes('font-semibold mb-2')
-            with ui.column().classes('gap-2'):
-                ui.checkbox('Rakuten', value=True)
-                ui.checkbox('TopCashback', value=True)
-                ui.checkbox('Honey', value=True)
-                ui.checkbox('BeFrugal', value=True)
-                ui.checkbox('Swagbucks', value=True)
-    
-    create_footer()
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_settings()
+        create_footer()
 
 @ui.page('/health')
-async def health_check():
-    """Health check endpoint for Docker."""
-    return {'status': 'healthy', 'service': 'app-frontend', 'version': '0.5.0'}
+async def health():
+    return {'status': 'healthy', 'version': '0.6.0'}
 
 # =============================================================================
-# Main Entry Point
+# Main
 # =============================================================================
 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         host='0.0.0.0',
         port=8080,
-        title='Net Price Finder',
+        title='NetPrice Finder',
         favicon='💰',
         reload=False,
-        show=False
+        show=False,
+        storage_secret=STORAGE_SECRET
     )
