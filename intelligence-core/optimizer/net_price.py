@@ -709,7 +709,6 @@ class NetPriceOptimizer:
         # Reset cashback offers for new optimization
         self._found_cashback_offers = []
         
-        logger.info(f"")
         logger.info(f"{'#'*70}")
         logger.info(f"[OPTIMIZER] Starting price optimization for: {query[:80]}...")
         logger.info(f"{'#'*70}")
