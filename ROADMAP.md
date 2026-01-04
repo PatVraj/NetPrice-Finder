@@ -6,12 +6,12 @@
 
 ---
 
-## 📌 Current Version: `v0.7.0` – Data Persistence & User Experience
+## 📌 Current Version: `v0.8.0` – Cross-Retailer Comparison, QA & UX Polish
 
 **Status:** 🔄 In Progress  
-**Started:** 2026-01-03  
-**Target Completion:** 2026-01-07  
-**Last Updated:** 2026-01-03
+**Started:** 2026-01-04  
+**Target Completion:** 2026-01-20  
+**Last Updated:** 2026-01-04
 
 ---
 
@@ -19,10 +19,207 @@
 
 ---
 
-## 🏷️ v0.7.0 – Data Persistence & User Experience
+## 🏷️ v0.8.0 – Cross-Retailer Comparison, QA & UX Polish
 **Status:** 🔄 In Progress  
+**Started:** 2026-01-04  
+**Target Completion:** 2026-01-20
+
+### Overview
+
+This release focuses on five major improvements identified during QA review:
+
+1. **Cross-Retailer Price Comparison** – Find same product across multiple retailers to get true best price
+2. **UI/UX Polish** – Fix visual inconsistencies and align with modern design standards
+3. **User Settings Enhancements** – Account management, location detection, password reset
+4. **Card Page Improvements** – Better card discovery, search, and professional card images
+5. **Bug Fixes & Test Coverage** – Fix existing bugs and add comprehensive test cases
+
+---
+
+### 🎯 Feature 1: Cross-Retailer Price Comparison
+
+**Problem:**  
+Currently the app only finds cashback for the URL the user pastes. It doesn't search for the same product on other retailers where it might be cheaper even after cashback.
+
+**Example Scenario:**
+- User pastes: Pandora ring on pandora.net for $95
+- Same ring on Macy's: $85 with 10% cashback = $76.50 net price
+- **User should see both options and pick the true cheapest**
+
+**Research Required:**
+- [ ] Evaluate Google Shopping API (paid) vs open-source alternatives
+- [ ] Research product matching algorithms (SKU, title similarity, image matching)
+- [ ] Investigate free product search APIs (Google Shopping, PriceGrabber, etc.)
+- [ ] Evaluate web scraping approach for major retailers
+
+**Implementation Tasks:**
+
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Research product discovery APIs/tools | ⬜ | 🔴 Critical | Google Shopping, PriceGrabber, Shopzilla |
+| Design cross-retailer search architecture | ⬜ | 🔴 Critical | How to match same product across sites |
+| Build product identifier extraction | ⬜ | 🔴 Critical | Extract SKU, UPC, brand, model from URL |
+| Implement multi-retailer search | ⬜ | 🔴 Critical | Query other retailers for same product |
+| Build price comparison aggregator | ⬜ | 🟡 Medium | Combine product + cashback data |
+| Create comparison results UI | ⬜ | 🟡 Medium | Show all retailer options sorted by net price |
+| Cache product mappings in SQLite | ⬜ | 🟢 Low | Avoid re-searching known products |
+
+**Potential Tools/APIs to Evaluate:**
+- Google Shopping API (paid, but most comprehensive)
+- SerpAPI (Google Shopping scraper, paid)
+- Open source: Scrapy, BeautifulSoup for retailer scraping
+- Product matching: Fuzzy string matching, image similarity APIs
+
+---
+
+### 🎯 Feature 2: UI/UX Design Polish
+
+**Problems Identified:**
+- Divs not properly aligned
+- Navbar scroll reveals inconsistent backgrounds (green gradient → random rectangle → black)
+- Overall design lacks cohesion
+
+**Research Required:**
+- [ ] Review modern SaaS dashboard design patterns
+- [ ] Study NiceGUI layout best practices
+- [ ] Evaluate Tailwind CSS patterns for consistent spacing
+
+**Implementation Tasks:**
+
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Audit all pages for visual inconsistencies | ⬜ | 🔴 Critical | Document all issues |
+| Fix navbar background consistency | ⬜ | 🔴 Critical | Solid/blur background on scroll |
+| Align all div elements properly | ⬜ | 🔴 Critical | Consistent padding/margins |
+| Create unified color scheme | ⬜ | 🟡 Medium | Define and apply design tokens |
+| Fix page background layering | ⬜ | 🔴 Critical | Remove random rectangles |
+| Implement consistent card styling | ⬜ | 🟡 Medium | Shadow, border-radius, padding |
+| Add smooth scroll transitions | ⬜ | 🟢 Low | Polish animations |
+| Mobile responsive review | ⬜ | 🟡 Medium | Test all breakpoints |
+
+**Design Standards to Follow:**
+- Consistent 8px spacing grid
+- Max content width container
+- Unified shadow/elevation system
+- Consistent border-radius (8px cards, 4px inputs)
+
+---
+
+### 🎯 Feature 3: User Settings Enhancements
+
+**Problems Identified:**
+- No account deletion option
+- No "forgot password" flow
+- Location detection only gets state, not city (city tax rates differ)
+- Need proper location consent flow
+
+**Implementation Tasks:**
+
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Add "Delete Account" with confirmation | ⬜ | 🔴 Critical | GDPR-like data deletion |
+| Implement "Forgot Password" email flow | ⬜ | 🔴 Critical | Password reset tokens |
+| Enhance location detection (city + state) | ⬜ | 🔴 Critical | More accurate tax calculation |
+| Add location consent popup | ⬜ | 🔴 Critical | Cookie/location permission UX |
+| Allow manual address entry | ⬜ | 🟡 Medium | For users who deny location |
+| Lookup city-level tax rates | ⬜ | 🟡 Medium | Integrate tax API with city granularity |
+| Add email verification | ⬜ | 🟢 Low | Verify email on registration |
+| Session management (view active sessions) | ⬜ | 🟢 Low | Security feature |
+
+**Location Detection Approach:**
+1. Show cookie/location consent popup on first visit
+2. If allowed, use IP geolocation for city + state
+3. If denied, prompt for manual address entry (zip code → city lookup)
+4. Store and use for accurate tax calculation
+
+**Tax Rate Sources:**
+- Consider TaxJar API, Avalara, or open tax databases
+- Need city-level granularity (e.g., NYC vs Buffalo have different rates)
+
+---
+
+### 🎯 Feature 4: Card Page Improvements
+
+**Problems Identified:**
+- Only 6 cards displayed
+- No search functionality
+- No professional card images
+- Poor card discovery UX
+
+**Implementation Tasks:**
+
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Research credit card image APIs/sources | ⬜ | 🔴 Critical | Legal, high-quality card images |
+| Add card search functionality | ⬜ | 🔴 Critical | Filter by name, issuer, rewards type |
+| Expand card database | ⬜ | 🔴 Critical | Add more popular cards |
+| Create card image gallery | ⬜ | 🟡 Medium | Visual card recognition |
+| Implement infinite scroll/pagination | ⬜ | 🟡 Medium | Handle large card list |
+| Add card categories (travel, cashback, etc.) | ⬜ | 🟡 Medium | Filter by type |
+| Show card benefits summary | ⬜ | 🟢 Low | Sign-up bonus, annual fee |
+| Add "popular cards" section | ⬜ | 🟢 Low | Quick access to common cards |
+
+**Card Image Sources to Research:**
+- Card issuer media kits (official assets)
+- Credit card review sites with image APIs
+- Generate stylized card representations (avoid copyright issues)
+
+---
+
+### 🎯 Feature 5: Bug Fixes & QA Test Coverage
+
+**Known Bugs:**
+
+| Bug | Severity | File | Status |
+|-----|----------|------|--------|
+| `'AppState' object has no attribute 'user_tax_rate'` | 🔴 Critical | `main.py` | ⬜ |
+| Need comprehensive error handling review | 🔴 Critical | Multiple | ⬜ |
+
+**QA Tasks:**
+
+| Task | Status | Priority | Notes |
+|------|--------|----------|-------|
+| Fix `user_tax_rate` AttributeError | ⬜ | 🔴 Critical | Add missing attribute |
+| Review all AppState attributes | ⬜ | 🔴 Critical | Ensure all used attrs exist |
+| Add input validation across all forms | ⬜ | 🔴 Critical | Prevent invalid data |
+| Create end-to-end test for product search | ⬜ | 🔴 Critical | Full flow test |
+| Add API error handling tests | ⬜ | 🔴 Critical | Handle API failures gracefully |
+| Test unauthenticated user flows | ⬜ | 🟡 Medium | Ensure proper redirects |
+| Test admin-only routes | ⬜ | 🟡 Medium | Verify access control |
+| Add database constraint tests | ⬜ | 🟡 Medium | Foreign keys, unique constraints |
+| Load testing with concurrent users | ⬜ | 🟢 Low | Performance under load |
+| Browser compatibility testing | ⬜ | 🟢 Low | Chrome, Firefox, Safari, Edge |
+
+**Test Strategy:**
+1. **Core Flow Tests** – Product search, cashback lookup, price optimization
+2. **Auth Tests** – Login, register, logout, session handling
+3. **Database Tests** – CRUD operations, constraints, persistence
+4. **Error Handling** – Graceful degradation when services fail
+5. **Edge Cases** – Empty states, invalid inputs, missing data
+
+---
+
+### Tasks Progress Summary:
+
+| Feature | Critical | Medium | Low | Total |
+|---------|----------|--------|-----|-------|
+| Cross-Retailer Comparison | 4 | 2 | 1 | 7 |
+| UI/UX Polish | 4 | 3 | 1 | 8 |
+| User Settings | 4 | 2 | 2 | 8 |
+| Card Page | 2 | 4 | 2 | 8 |
+| Bug Fixes & QA | 5 | 3 | 2 | 10 |
+| **Total** | **19** | **14** | **8** | **41** |
+
+---
+
+**Milestone:** Complete cross-retailer comparison, fix all known bugs, and polish UI/UX
+
+---
+
+## 🏷️ v0.7.0 – Data Persistence & User Experience
+**Status:** ✅ Complete  
 **Started:** 2026-01-03  
-**Target Completion:** 2026-01-07
+**Completed:** 2026-01-04
 
 ### Branch: `feature/data-persistence`
 **Created:** 2026-01-03  
@@ -339,18 +536,71 @@ search_history (id, user_id, product_url, product_name, retailer, product_price,
 ---
 
 ### Phase 7: Data Persistence & User Experience 💾
-**Target:** v0.7.0 | **Status:** 🔄 In Progress
+**Target:** v0.7.0 | **Status:** ✅ Complete
 
 | Task | Status | Priority |
 |------|--------|----------|
 | SQLite database for user accounts | ✅ | 🔴 Critical |
 | Persist card wallet per user | ✅ | 🔴 Critical |
 | Search history storage | ✅ | 🟡 Medium |
-| Price tracking over time | ⬜ | 🟡 Medium |
-| Integrate RetailerIntelligence with frontend | ⬜ | 🟡 Medium |
+| Price tracking over time | ✅ | 🟡 Medium |
+| Integrate RetailerIntelligence with frontend | ✅ | 🟡 Medium |
 | User settings persistence (tax rate, location) | ✅ | 🟢 Low |
 
-**Milestone:** User data persists across container restarts
+**Milestone:** ✅ User data persists across container restarts
+
+---
+
+### Phase 8: Cross-Retailer Comparison & QA 🔍
+**Target:** v0.8.0 | **Status:** 🔄 In Progress
+
+**Feature 8.1: Cross-Retailer Price Comparison**
+| Task | Status | Priority |
+|------|--------|----------|
+| Research product discovery APIs/tools | ⬜ | 🔴 Critical |
+| Design cross-retailer search architecture | ⬜ | 🔴 Critical |
+| Build product identifier extraction | ⬜ | 🔴 Critical |
+| Implement multi-retailer search | ⬜ | 🔴 Critical |
+| Build price comparison aggregator | ⬜ | 🟡 Medium |
+| Create comparison results UI | ⬜ | 🟡 Medium |
+
+**Feature 8.2: UI/UX Design Polish**
+| Task | Status | Priority |
+|------|--------|----------|
+| Audit and fix visual inconsistencies | ⬜ | 🔴 Critical |
+| Fix navbar background consistency | ⬜ | 🔴 Critical |
+| Align all div elements properly | ⬜ | 🔴 Critical |
+| Create unified color scheme | ⬜ | 🟡 Medium |
+
+**Feature 8.3: User Settings Enhancements**
+| Task | Status | Priority |
+|------|--------|----------|
+| Add "Delete Account" functionality | ⬜ | 🔴 Critical |
+| Implement "Forgot Password" flow | ⬜ | 🔴 Critical |
+| Enhance location detection (city + state) | ⬜ | 🔴 Critical |
+| Add location consent popup | ⬜ | 🔴 Critical |
+| Lookup city-level tax rates | ⬜ | 🟡 Medium |
+
+**Feature 8.4: Card Page Improvements**
+| Task | Status | Priority |
+|------|--------|----------|
+| Research credit card image sources | ⬜ | 🔴 Critical |
+| Add card search functionality | ⬜ | 🔴 Critical |
+| Expand card database | ⬜ | 🔴 Critical |
+| Implement infinite scroll/pagination | ⬜ | 🟡 Medium |
+| Add card categories filter | ⬜ | 🟡 Medium |
+
+**Feature 8.5: Bug Fixes & QA**
+| Task | Status | Priority |
+|------|--------|----------|
+| Fix `user_tax_rate` AttributeError | ⬜ | 🔴 Critical |
+| Review all AppState attributes | ⬜ | 🔴 Critical |
+| Add input validation across forms | ⬜ | 🔴 Critical |
+| Create end-to-end test for product search | ⬜ | 🔴 Critical |
+| Add API error handling tests | ⬜ | 🔴 Critical |
+| Test auth and admin flows | ⬜ | 🟡 Medium |
+
+**Milestone:** Complete cross-retailer comparison, fix all known bugs, polish UI/UX
 
 ---
 
@@ -701,30 +951,32 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 ## 🔮 Future Versions
 
-### v0.2.0 – Core Infrastructure
-- [ ] Complete Docker Compose with all services
-- [ ] GPU passthrough for WebGL + CUDA
-- [ ] Basic NiceGUI dashboard layout
+### v0.8.0 – Cross-Retailer Comparison & QA (Current)
+- [ ] Cross-retailer product search and price comparison
+- [ ] UI/UX design polish and consistency
+- [ ] User settings: account deletion, forgot password, city-level tax
+- [ ] Card page: search, images, expanded database
+- [ ] Bug fixes and comprehensive test coverage
 
-### v0.3.0 – Visual Scraping
-- [ ] Playwright screencast streaming
-- [ ] Interactive image with click relay
-- [ ] Anti-bot evasion (stealth patches)
-
-### v0.4.0 – Intelligence Integration
-- [ ] Ollama semantic routing
-- [ ] Function calling implementation
-- [ ] Firefly III API integration
-
-### v0.5.0 – Document Parsing
-- [ ] PDF to image conversion
-- [ ] Vision LLM parsing (Llava)
-- [ ] Pydantic validation pipeline
+### v0.9.0 – Notifications & Alerts
+- [ ] Price drop email/push notifications
+- [ ] Target price alerts implementation
+- [ ] Cashback rate change alerts
+- [ ] Weekly savings digest emails
 
 ### v1.0.0 – MVP Release
-- [ ] All core features operational
-- [ ] Documentation complete
+- [x] Core price optimization operational
+- [x] Cashback comparison across 5 platforms
+- [x] User authentication and data persistence
+- [ ] Cross-retailer comparison complete
+- [ ] All known bugs fixed
 - [ ] Production-ready deployment
+- [ ] Full documentation
+
+### v1.1.0 – Mobile & PWA
+- [ ] Progressive Web App support
+- [ ] Mobile-optimized interface
+- [ ] Push notifications
 
 ---
 
@@ -775,5 +1027,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-03 (Phase 7 - SQLite data persistence implemented)</em>
+  <em>Last updated: 2026-01-04 (Phase 8 - v0.8.0 roadmap planning added)</em>
 </p>

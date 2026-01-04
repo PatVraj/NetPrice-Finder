@@ -1,0 +1,39 @@
+Fix 1:
+
+Right now when the user searches a url all that happens is we check the cashback websites and find whatever has the best cashback and tell the user thats the cheapest price
+But I also want the search to automatically query other established retailers that may have the product and compare the price with the cashback offers on that website for the cheapest overall price.
+
+An example of this would be:
+
+Orginal Item - https://us.pandora.net/en/jewelry/best-sellers/sparkling-pink-bow-ring/193510C01.html?cid=sem:google_shopping:shopping:no_collection:lowerfunnel:no_promo:::::::jewelry::::&gclsrc=aw.ds&gad_source=1&gad_campaignid=22996362138&gbraid=0AAAAADjXw0Wo8bkEU6bsDD6cf4PAvXAMC&gclid=CjwKCAiAmePKBhAfEiwAU3Ko3PJuk4Ob8WvaTdLLp9AnOVE7D9h2lqQxZrqRSVbZCfa6bcYYslbyGBoCgOoQAvD_BwE
+
+Same Item but on Macys - https://www.macys.com/shop/product/pandora-sterling-silver-sparkling-pink-bow-ring?ID=19891283
+
+I am not sure how we would find all of these sites, maybe google shopping or some other open source or free tool that we can use to mass query these sites.
+The advantage is that the cashback rates are constant regardless of product for websites, so we only need one query to find the casback for the site and then we are storing it to our sqlite db for easy requery
+The part we need to solve is finding products on all these websites
+And also if it makes sense to store all the product querires too?
+Please make sure to first critically analyze and research the request and understand what must be done to get it done succesfully. After finding the best tools, open soruce software, and free libraries, work on integrating this into a new branch.
+
+Fix 2:
+
+The UI Still has a lot of weird graphic design.
+The divs are not even aligned to each other for example, the navbar works, but when scrolling up and down on the main page I can see the green design background and then a random rectangle div above it and then a black background around all of it. That does not lookn good at all. Please research industry standards for best UI/UX and work on changing around the site to match those standards.
+
+Fix 3:
+The user settings is not very flushed out, please research what makes most sense for user settings based on our current project, and then design and develop those features. There needs to be ways for users to delete their account, forget password at a minimum. Also the automatic detecition of location needs to get city and state, since the city sales tax can differ from state. We need to calculate net tax based on location. Maybe we can ask users to enter their address, but please figure out best way to do this. Also noramlly on wesbites that require cookies or location I get a pop up asking if they can track and then it automatically gets the right location, could we not do that?
+
+Fix 4:
+I want more development of the card page. Currently the cards show a cashback but I only see six. There needs to be a better UI/UX for this. Maybe we need to also add a search for the user to quickly add their cards. And also 4k or other professional images of how the card looks so its easier for users to distinguish. Once again this required detailed research on how to best apporach and develop out the pasge.
+
+Fix 5:
+
+The website currently has alot of bugs that we did not catch and have already been pushed to main.
+For example, now when I paste this link:
+https://us.pandora.net/en/jewelry/best-sellers/sparkling-pink-bow-ring/193510C01.html?cid=sem:google_shopping:shopping:no_collection:lowerfunnel:no_promo:::::::jewelry::::&gclsrc=aw.ds&gad_source=1&gad_campaignid=22996362138&gbraid=0AAAAADjXw0Wo8bkEU6bsDD6cf4PAvXAMC&gclid=CjwKCAiAmePKBhAfEiwAU3Ko3PJuk4Ob8WvaTdLLp9AnOVE7D9h2lqQxZrqRSVbZCfa6bcYYslbyGBoCgOoQAvD_BwE
+
+The error in the logs shows: 
+ssip-frontend  | API Error: 'AppState' object has no attribute 'user_tax_rate'
+
+But there are plenty more errors that were not caught either in code or test cases. So please review various functions of website and act as QA engineer and find all bugs you can and then scope out the bugs with what we need to fix and develop better test cases that will automatically catch these errors if something ever goes wrong. The goal is not to make a test case for every function, but make the core function of the app test cased and fool proof to future changes without silent errors.
+
