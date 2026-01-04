@@ -76,6 +76,9 @@ class PriceResult:
     cashback_percent: float = 0.0
     cashback_value: float = 0.0
     all_cashback_rates: List[dict] = field(default_factory=list)
+    # Cache metadata
+    cashback_from_cache: bool = False
+    cashback_last_updated: str = "Unknown"
     card_name: Optional[str] = None
     card_reward_percent: float = 0.0
     card_reward_value: float = 0.0
@@ -590,6 +593,15 @@ def create_results():
                                 if is_best:
                                     ui.badge('Best').props('color=positive dense')
                             ui.label(f'{cb.rate}%' if cb.found else '—').classes('text-sm ' + ('text-emerald-400 font-medium' if cb.found else 'text-gray-600'))
+                    
+                    # Show cache status
+                    with ui.row().classes('w-full justify-center items-center gap-2 pt-3 mt-2 border-t border-gray-700/30'):
+                        if r.cashback_from_cache:
+                            ui.icon('cached', size='xs', color='gray')
+                            ui.label(f'Rates updated {r.cashback_last_updated}').classes('text-xs text-gray-500')
+                        else:
+                            ui.icon('refresh', size='xs', color='emerald')
+                            ui.label('Fresh data').classes('text-xs text-emerald-500')
 
 def create_login():
     """Create login form."""
