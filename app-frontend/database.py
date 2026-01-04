@@ -366,6 +366,8 @@ class UserDatabase:
     
     def get_user_by_email(self, email: str) -> Optional[User]:
         """Get a user by email address."""
+        if not email:
+            return None
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -396,6 +398,8 @@ class UserDatabase:
         Returns:
             User object if authentication succeeds, None otherwise.
         """
+        if not email or not password:
+            return None
         user = self.get_user_by_email(email)
         if user and verify_password(password, user.password_hash):
             logger.info(f"User authenticated: {email}")

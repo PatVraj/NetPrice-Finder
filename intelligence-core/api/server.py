@@ -71,9 +71,9 @@ class ProductSearchRequest(BaseModel):
     
 class CardInfo(BaseModel):
     """Credit card information for the user's wallet."""
-    name: str = Field(..., description="Card name (e.g., 'Chase Sapphire Preferred')")
-    issuer: str = Field(..., description="Card issuer (e.g., 'Chase')")
-    base_rate: float = Field(1.0, description="Base reward rate in %")
+    name: str = Field(..., min_length=1, description="Card name (e.g., 'Chase Sapphire Preferred')")
+    issuer: str = Field(..., min_length=1, description="Card issuer (e.g., 'Chase')")
+    base_rate: float = Field(1.0, ge=0, le=100, description="Base reward rate in %")
     bonus_categories: Optional[List[dict]] = Field(None, description="Bonus category rates")
 
 class UserWallet(BaseModel):
@@ -206,13 +206,20 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
+    # Handle case where lifespan hasn't run (e.g., in tests)
+    try:
+        card_count = len(app.state.user_wallet.cards)
+        wallet_status = f"{card_count} cards"
+    except AttributeError:
+        wallet_status = "not initialized"
+    
     return HealthResponse(
         status="healthy",
         version="0.5.0",
         services={
             "optimizer": "ready",
             "cashback_monitor": "ready",
-            "card_wallet": f"{len(app.state.user_wallet.cards)} cards"
+            "card_wallet": wallet_status
         }
     )
 
@@ -457,28 +464,29 @@ async def remove_card_from_wallet(card_name: str):
 @app.get("/api/v1/popular-cards")
 async def get_popular_cards():
     """Get list of popular pre-built cards that users can add."""
-    return {
-        "cards": [
-            {
-                "name": card.name,
-                "issuer": card.issuer,
-                "base_rate": card.base_rate,
-                "highlights": [
-                    f"{bc.rate}x on {bc.category}"
-                    for bc in card.bonus_categories[:3]
-                ]
-            }
-            for card in POPULAR_CARDS
-        ]
-    }
+    cards_list = []
+    for card_name, card_factory in POPULAR_CARDS.items():
+        card = card_factory()  # Call factory function to get card object
+        cards_list.append({
+            "name": card.name,
+            "issuer": card.issuer,
+            "base_rate": card.base_rate,
+            "highlights": [
+                f"{bc.rate}x on {bc.category}"
+                for bc in card.bonus_categories[:3]
+            ]
+        })
+    return {"cards": cards_list}
 
 @app.post("/api/v1/wallet/add-popular/{card_name}")
 async def add_popular_card(card_name: str):
     """Add a popular pre-built card to the user's wallet."""
-    card = next((c for c in POPULAR_CARDS if c.name == card_name), None)
-    if not card:
+    # Look up card factory by name
+    card_factory = POPULAR_CARDS.get(card_name)
+    if not card_factory:
         raise HTTPException(status_code=404, detail=f"Card '{card_name}' not found")
     
+    card = card_factory()  # Create card from factory
     app.state.user_wallet.add_card(card)
     return {"status": "added", "card": card_name, "total_cards": len(app.state.user_wallet.cards)}
 
