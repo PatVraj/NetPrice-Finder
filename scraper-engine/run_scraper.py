@@ -31,6 +31,19 @@ SCREENSHOT_QUALITY = int(os.getenv("SCRAPER_SCREENSHOT_QUALITY", 50))
 VIEWPORT_WIDTH = int(os.getenv("SCRAPER_VIEWPORT_WIDTH", 1920))
 VIEWPORT_HEIGHT = int(os.getenv("SCRAPER_VIEWPORT_HEIGHT", 1080))
 
+# Page load timing constants
+# Most SPAs (React, Vue, Angular) need 3-5 seconds after initial page load
+# to fully hydrate and render dynamic content
+JS_RENDER_DELAY_SECONDS = 3
+
+# Wait time after clicking cookie consent buttons to ensure popup dismissal
+# completes before proceeding with page interaction
+COOKIE_POPUP_DISMISS_DELAY_SECONDS = 1
+
+# Extended delay for fallback loading strategy when primary load fails
+# Gives extra time for content to render when using domcontentloaded
+FALLBACK_CONTENT_LOAD_DELAY_SECONDS = 7
+
 # Initialize structured logging
 logger = structlog.get_logger()
 
@@ -391,9 +404,8 @@ async def extract_data(request: ExtractRequest):
                         timeout=30000
                     )
                     # Wait for JS frameworks to render content (React, Vue, etc.)
-                    # Most SPAs need 3-5 seconds after load to hydrate
                     logger.info("Waiting for JS to render...")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(JS_RENDER_DELAY_SECONDS)
                     
                     # Try to dismiss cookie consent popups
                     cookie_selectors = [
@@ -419,13 +431,13 @@ async def extract_data(request: ExtractRequest):
                             if btn and await btn.is_visible():
                                 logger.info("Clicking cookie consent button", selector=selector)
                                 await btn.click()
-                                await asyncio.sleep(1)
+                                await asyncio.sleep(COOKIE_POPUP_DISMISS_DELAY_SECONDS)
                                 break
                         except Exception:
                             continue
                     
                     # Wait a bit more for content to load after dismissing popup
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(JS_RENDER_DELAY_SECONDS)
                     
                 except Exception as e:
                     logger.warning("Load failed, trying domcontentloaded", error=str(e))
@@ -435,7 +447,7 @@ async def extract_data(request: ExtractRequest):
                         wait_until="domcontentloaded", 
                         timeout=30000
                     )
-                    await asyncio.sleep(7)
+                    await asyncio.sleep(FALLBACK_CONTENT_LOAD_DELAY_SECONDS)
             else:
                 await scraper.page.goto(
                     request.url, 
