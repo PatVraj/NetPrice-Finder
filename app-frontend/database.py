@@ -96,6 +96,78 @@ class SearchHistory:
     searched_at: str
 
 
+@dataclass
+class PricePoint:
+    """A single price observation for a product."""
+    id: int
+    product_id: int
+    price: float
+    net_price: float
+    best_cashback_rate: float
+    recorded_at: str
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "product_id": self.product_id,
+            "price": self.price,
+            "net_price": self.net_price,
+            "best_cashback_rate": self.best_cashback_rate,
+            "recorded_at": self.recorded_at,
+        }
+
+
+@dataclass
+class TrackedProduct:
+    """A product being tracked for price history."""
+    id: int
+    user_id: int
+    product_url: str
+    product_name: Optional[str]
+    retailer: Optional[str]
+    
+    # Current price snapshot
+    current_price: Optional[float] = None
+    lowest_price: Optional[float] = None
+    highest_price: Optional[float] = None
+    
+    # Alert settings
+    target_price: Optional[float] = None  # Alert when price drops below
+    alert_enabled: bool = False
+    
+    # Timestamps
+    first_tracked_at: str = ""
+    last_checked_at: str = ""
+    
+    # Price history (populated separately)
+    price_history: List[PricePoint] = field(default_factory=list)
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "product_url": self.product_url,
+            "product_name": self.product_name,
+            "retailer": self.retailer,
+            "current_price": self.current_price,
+            "lowest_price": self.lowest_price,
+            "highest_price": self.highest_price,
+            "target_price": self.target_price,
+            "alert_enabled": self.alert_enabled,
+            "first_tracked_at": self.first_tracked_at,
+            "last_checked_at": self.last_checked_at,
+            "price_history": [p.to_dict() for p in self.price_history],
+            "price_drop_percent": self._calculate_drop_percent(),
+        }
+    
+    def _calculate_drop_percent(self) -> Optional[float]:
+        """Calculate percentage drop from highest to current."""
+        if self.highest_price and self.current_price and self.highest_price > 0:
+            drop = ((self.highest_price - self.current_price) / self.highest_price) * 100
+            return round(drop, 1) if drop > 0 else None
+        return None
+
+
 # =============================================================================
 # Password Hashing
 # =============================================================================
@@ -301,11 +373,43 @@ class UserDatabase:
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
                 
+                -- Tracked products for price monitoring
+                CREATE TABLE IF NOT EXISTS tracked_products (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    product_url TEXT NOT NULL,
+                    product_name TEXT,
+                    retailer TEXT,
+                    current_price REAL,
+                    lowest_price REAL,
+                    highest_price REAL,
+                    target_price REAL,  -- Alert when price drops below this
+                    alert_enabled BOOLEAN DEFAULT FALSE,
+                    first_tracked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    UNIQUE(user_id, product_url)
+                );
+                
+                -- Price history observations
+                CREATE TABLE IF NOT EXISTS price_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL,
+                    price REAL NOT NULL,
+                    net_price REAL NOT NULL,
+                    best_cashback_rate REAL DEFAULT 0,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (product_id) REFERENCES tracked_products(id) ON DELETE CASCADE
+                );
+                
                 -- Indexes for performance
                 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                 CREATE INDEX IF NOT EXISTS idx_user_cards_user ON user_cards(user_id);
                 CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id);
                 CREATE INDEX IF NOT EXISTS idx_search_history_date ON search_history(searched_at);
+                CREATE INDEX IF NOT EXISTS idx_tracked_products_user ON tracked_products(user_id);
+                CREATE INDEX IF NOT EXISTS idx_price_history_product ON price_history(product_id);
+                CREATE INDEX IF NOT EXISTS idx_price_history_date ON price_history(recorded_at);
             """)
             
             # Check/update schema version
@@ -678,6 +782,279 @@ class UserDatabase:
                 "avg_savings": row["avg_savings"] or 0,
                 "best_savings": row["best_savings"] or 0
             }
+    
+    # =========================================================================
+    # Price Tracking
+    # =========================================================================
+    
+    def track_product(
+        self,
+        user_id: int,
+        product_url: str,
+        product_name: Optional[str] = None,
+        retailer: Optional[str] = None,
+        initial_price: Optional[float] = None,
+        net_price: Optional[float] = None,
+        cashback_rate: float = 0.0,
+        target_price: Optional[float] = None,
+    ) -> Optional[TrackedProduct]:
+        """
+        Start tracking a product's price for a user.
+        If already tracking, updates the price history.
+        
+        Returns:
+            TrackedProduct if successful, None if error.
+        """
+        now = datetime.now().isoformat()
+        
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if already tracking this product
+            cursor.execute(
+                "SELECT id, lowest_price, highest_price FROM tracked_products WHERE user_id = ? AND product_url = ?",
+                (user_id, product_url)
+            )
+            existing = cursor.fetchone()
+            
+            if existing:
+                product_id = existing["id"]
+                lowest = existing["lowest_price"]
+                highest = existing["highest_price"]
+                
+                # Update price bounds if we have a new price
+                if initial_price is not None:
+                    if lowest is None or initial_price < lowest:
+                        lowest = initial_price
+                    if highest is None or initial_price > highest:
+                        highest = initial_price
+                    
+                    cursor.execute("""
+                        UPDATE tracked_products 
+                        SET current_price = ?, lowest_price = ?, highest_price = ?,
+                            last_checked_at = ?, product_name = COALESCE(?, product_name),
+                            retailer = COALESCE(?, retailer)
+                        WHERE id = ?
+                    """, (initial_price, lowest, highest, now, product_name, retailer, product_id))
+                    
+                    # Add price history point
+                    cursor.execute("""
+                        INSERT INTO price_history (product_id, price, net_price, best_cashback_rate, recorded_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (product_id, initial_price, net_price or initial_price, cashback_rate, now))
+            else:
+                # Create new tracked product
+                cursor.execute("""
+                    INSERT INTO tracked_products 
+                    (user_id, product_url, product_name, retailer, current_price, 
+                     lowest_price, highest_price, target_price, first_tracked_at, last_checked_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    user_id, product_url, product_name, retailer, initial_price,
+                    initial_price, initial_price, target_price, now, now
+                ))
+                product_id = cursor.lastrowid
+                
+                # Add initial price history point if we have a price
+                if initial_price is not None:
+                    cursor.execute("""
+                        INSERT INTO price_history (product_id, price, net_price, best_cashback_rate, recorded_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (product_id, initial_price, net_price or initial_price, cashback_rate, now))
+            
+            conn.commit()
+            
+            return self.get_tracked_product(user_id, product_id)
+    
+    def get_tracked_product(self, user_id: int, product_id: int) -> Optional[TrackedProduct]:
+        """Get a specific tracked product with its price history."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM tracked_products WHERE id = ? AND user_id = ?",
+                (product_id, user_id)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            product = self._row_to_tracked_product(row)
+            
+            # Load price history
+            cursor.execute("""
+                SELECT * FROM price_history 
+                WHERE product_id = ? 
+                ORDER BY recorded_at ASC
+            """, (product_id,))
+            
+            product.price_history = [
+                self._row_to_price_point(r) for r in cursor.fetchall()
+            ]
+            
+            return product
+    
+    def get_user_tracked_products(self, user_id: int, limit: int = 50) -> List[TrackedProduct]:
+        """Get all products a user is tracking."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM tracked_products 
+                WHERE user_id = ? 
+                ORDER BY last_checked_at DESC 
+                LIMIT ?
+            """, (user_id, limit))
+            
+            products = []
+            for row in cursor.fetchall():
+                product = self._row_to_tracked_product(row)
+                
+                # Load minimal price history (last 30 days for charts)
+                cursor.execute("""
+                    SELECT * FROM price_history 
+                    WHERE product_id = ? 
+                    AND recorded_at >= datetime('now', '-30 days')
+                    ORDER BY recorded_at ASC
+                """, (product.id,))
+                
+                product.price_history = [
+                    self._row_to_price_point(r) for r in cursor.fetchall()
+                ]
+                products.append(product)
+            
+            return products
+    
+    def get_product_price_history(
+        self,
+        product_id: int,
+        days: int = 30
+    ) -> List[PricePoint]:
+        """Get price history for a specific product."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM price_history 
+                WHERE product_id = ? 
+                AND recorded_at >= datetime('now', ? || ' days')
+                ORDER BY recorded_at ASC
+            """, (product_id, -days))
+            
+            return [self._row_to_price_point(row) for row in cursor.fetchall()]
+    
+    def update_product_alert(
+        self,
+        user_id: int,
+        product_id: int,
+        target_price: Optional[float] = None,
+        alert_enabled: bool = True
+    ) -> bool:
+        """Update price alert settings for a tracked product."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE tracked_products 
+                SET target_price = ?, alert_enabled = ?
+                WHERE id = ? AND user_id = ?
+            """, (target_price, alert_enabled, product_id, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def untrack_product(self, user_id: int, product_id: int) -> bool:
+        """Stop tracking a product (deletes history)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM tracked_products WHERE id = ? AND user_id = ?",
+                (product_id, user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_products_with_price_drops(self, user_id: int) -> List[TrackedProduct]:
+        """Get products that have dropped below their target price."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM tracked_products 
+                WHERE user_id = ? 
+                AND alert_enabled = TRUE 
+                AND target_price IS NOT NULL 
+                AND current_price <= target_price
+                ORDER BY (target_price - current_price) DESC
+            """, (user_id,))
+            
+            return [self._row_to_tracked_product(row) for row in cursor.fetchall()]
+    
+    def get_price_tracking_stats(self, user_id: int) -> Dict[str, Any]:
+        """Get aggregate price tracking stats for a user."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Count tracked products
+            cursor.execute(
+                "SELECT COUNT(*) FROM tracked_products WHERE user_id = ?",
+                (user_id,)
+            )
+            total_tracked = cursor.fetchone()[0]
+            
+            # Products with alerts
+            cursor.execute(
+                "SELECT COUNT(*) FROM tracked_products WHERE user_id = ? AND alert_enabled = TRUE",
+                (user_id,)
+            )
+            with_alerts = cursor.fetchone()[0]
+            
+            # Products at lowest price
+            cursor.execute("""
+                SELECT COUNT(*) FROM tracked_products 
+                WHERE user_id = ? AND current_price = lowest_price AND current_price IS NOT NULL
+            """, (user_id,))
+            at_lowest = cursor.fetchone()[0]
+            
+            # Total price observations
+            cursor.execute("""
+                SELECT COUNT(*) FROM price_history ph
+                JOIN tracked_products tp ON ph.product_id = tp.id
+                WHERE tp.user_id = ?
+            """, (user_id,))
+            total_observations = cursor.fetchone()[0]
+            
+            return {
+                "total_tracked": total_tracked,
+                "with_alerts": with_alerts,
+                "at_lowest_price": at_lowest,
+                "total_observations": total_observations,
+            }
+    
+    @staticmethod
+    def _row_to_tracked_product(row: sqlite3.Row) -> TrackedProduct:
+        """Convert a database row to a TrackedProduct object."""
+        return TrackedProduct(
+            id=row["id"],
+            user_id=row["user_id"],
+            product_url=row["product_url"],
+            product_name=row["product_name"],
+            retailer=row["retailer"],
+            current_price=row["current_price"],
+            lowest_price=row["lowest_price"],
+            highest_price=row["highest_price"],
+            target_price=row["target_price"],
+            alert_enabled=bool(row["alert_enabled"]),
+            first_tracked_at=row["first_tracked_at"],
+            last_checked_at=row["last_checked_at"],
+        )
+    
+    @staticmethod
+    def _row_to_price_point(row: sqlite3.Row) -> PricePoint:
+        """Convert a database row to a PricePoint object."""
+        return PricePoint(
+            id=row["id"],
+            product_id=row["product_id"],
+            price=row["price"],
+            net_price=row["net_price"],
+            best_cashback_rate=row["best_cashback_rate"],
+            recorded_at=row["recorded_at"],
+        )
 
 
 # =============================================================================

@@ -113,6 +113,7 @@ class AppState:
     redis_client: Optional[redis.Redis] = None
     current_result: Optional[PriceResult] = None
     db: Optional[UserDatabase] = None
+    last_search_url: Optional[str] = None
 
 state = AppState()
 
@@ -427,6 +428,7 @@ def create_navbar():
                     # Navigation links
                     ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
                     ui.link('Cards', '/cards').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    ui.link('Tracking', '/tracking').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
                     
                     if is_admin():
                         ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
@@ -438,6 +440,7 @@ def create_navbar():
                             # Mobile-only nav items
                             ui.menu_item('Search', lambda: ui.navigate.to('/')).classes('sm:hidden')
                             ui.menu_item('Cards', lambda: ui.navigate.to('/cards')).classes('sm:hidden')
+                            ui.menu_item('Tracking', lambda: ui.navigate.to('/tracking')).classes('sm:hidden')
                             if is_admin():
                                 ui.menu_item('Admin', lambda: ui.navigate.to('/admin')).classes('sm:hidden')
                             ui.menu_item('Settings', lambda: ui.navigate.to('/settings'))
@@ -501,7 +504,7 @@ def create_hero_search():
                         
                         # Save to search history
                         user_id = get_current_user_id()
-                        if user_id:
+                        if user_id and state.db:
                             state.db.add_search_history(
                                 user_id=user_id,
                                 product_url=query,
@@ -513,7 +516,20 @@ def create_hero_search():
                                 best_cashback_platform=result.cashback_platform,
                                 best_cashback_rate=result.cashback_percent
                             )
+                            
+                            # Also track price history
+                            state.db.track_product(
+                                user_id=user_id,
+                                product_url=query,
+                                product_name=result.product_name,
+                                retailer=result.retailer,
+                                initial_price=result.product_price,
+                                net_price=result.net_price,
+                                cashback_rate=result.cashback_percent
+                            )
                         
+                        # Store URL for results page
+                        state.last_search_url = query
                         ui.navigate.to('/results')
                     else:
                         ui.notify('Could not analyze product', type='warning')
@@ -579,6 +595,50 @@ def create_results():
                 ui.label('Net Price').classes('text-lg text-emerald-200')
                 ui.label(f'${r.net_price:.2f}').classes('text-4xl font-bold text-white')
             ui.label(f'You save ${r.total_savings:.2f} ({r.savings_percent:.1f}%)').classes('text-emerald-300 text-sm mt-2')
+        
+        # Price history section
+        user_id = get_current_user_id()
+        product_url = state.last_search_url
+        if user_id and state.db and product_url:
+            tracked_products = state.db.get_user_tracked_products(user_id, limit=100)
+            tracked = next((p for p in tracked_products if p.product_url == product_url), None)
+            
+            if tracked and tracked.price_history and len(tracked.price_history) > 1:
+                with ui.expansion('Price History', icon='trending_down').classes('w-full mt-4'):
+                    with ui.column().classes('w-full'):
+                        # Price stats
+                        with ui.row().classes('w-full justify-around py-3 border-b border-gray-700/30'):
+                            with ui.column().classes('items-center'):
+                                ui.label(f'${tracked.lowest_price:.2f}').classes('text-lg font-bold text-emerald-400')
+                                ui.label('Lowest').classes('text-xs text-gray-500')
+                            with ui.column().classes('items-center'):
+                                ui.label(f'${tracked.current_price:.2f}').classes('text-lg font-bold text-white')
+                                ui.label('Current').classes('text-xs text-gray-500')
+                            with ui.column().classes('items-center'):
+                                ui.label(f'${tracked.highest_price:.2f}').classes('text-lg font-bold text-red-400')
+                                ui.label('Highest').classes('text-xs text-gray-500')
+                        
+                        # Price drop indicator
+                        drop_pct = tracked._calculate_drop_percent()
+                        if drop_pct and drop_pct > 0:
+                            with ui.row().classes('w-full justify-center py-2'):
+                                ui.icon('arrow_downward', size='sm', color='emerald')
+                                ui.label(f'{drop_pct}% below highest price').classes('text-emerald-400 text-sm')
+                        
+                        # Price at lowest indicator
+                        if tracked.current_price == tracked.lowest_price:
+                            with ui.row().classes('w-full justify-center py-2'):
+                                ui.icon('local_fire_department', size='sm', color='orange')
+                                ui.label('Currently at lowest tracked price!').classes('text-orange-400 text-sm font-medium')
+                        
+                        # Simple price chart using text
+                        with ui.column().classes('w-full mt-3'):
+                            ui.label('Recent Prices').classes('text-xs text-gray-500 mb-2')
+                            for point in tracked.price_history[-5:]:  # Last 5 entries
+                                date_str = point.recorded_at[:10] if point.recorded_at else ''
+                                with ui.row().classes('w-full justify-between text-sm'):
+                                    ui.label(date_str).classes('text-gray-500')
+                                    ui.label(f'${point.price:.2f}').classes('text-white')
         
         if r.search_transparency and r.search_transparency.cashback_platforms_checked:
             with ui.expansion('Cashback Comparison', icon='compare_arrows').classes('w-full mt-4'):
@@ -954,6 +1014,90 @@ def create_settings():
                         ui.label(f'${stats["total_saved"]:.2f}').classes('text-2xl font-bold text-emerald-400')
                         ui.label('Total Saved').classes('text-gray-400 text-sm')
 
+
+def create_tracking():
+    """Create price tracking page showing all tracked products."""
+    # Redirect if not authenticated or database unavailable
+    if not is_authenticated() or not state.db:
+        ui.navigate.to('/login')
+        return
+    
+    user = get_current_user()
+    if not user:
+        ui.navigate.to('/login')
+        return
+    
+    tracked_products = state.db.get_user_tracked_products(user.id, limit=100)
+    stats = state.db.get_price_tracking_stats(user.id)
+    
+    with ui.column().classes('w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
+        ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
+        
+        ui.label('Price Tracking').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-2')
+        ui.label('Track price changes and get notified about drops').classes('text-gray-400 mb-6')
+        
+        # Stats summary
+        with ui.row().classes('w-full gap-4 mb-6'):
+            with ui.card().classes('glass rounded-xl p-4 flex-1'):
+                ui.label(f'{stats.get("total_tracked", 0)}').classes('text-2xl font-bold text-emerald-400')
+                ui.label('Products Tracked').classes('text-gray-400 text-sm')
+            with ui.card().classes('glass rounded-xl p-4 flex-1'):
+                ui.label(f'{stats.get("products_at_lowest", 0)}').classes('text-2xl font-bold text-orange-400')
+                ui.label('At Lowest Price').classes('text-gray-400 text-sm')
+            with ui.card().classes('glass rounded-xl p-4 flex-1'):
+                ui.label(f'{stats.get("products_with_alerts", 0)}').classes('text-2xl font-bold text-blue-400')
+                ui.label('With Alerts').classes('text-gray-400 text-sm')
+        
+        if not tracked_products:
+            with ui.card().classes('w-full glass rounded-xl p-8 text-center'):
+                ui.icon('trending_down', size='4rem', color='gray')
+                ui.label('No products tracked yet').classes('text-gray-400 mt-4')
+                ui.label('Search for products to start tracking prices').classes('text-gray-500 text-sm mt-2')
+                ui.button('Search Products', on_click=lambda: ui.navigate.to('/')).props('color=primary unelevated').classes('mt-4')
+        else:
+            # Product list
+            for product in tracked_products:
+                with ui.card().classes('w-full glass rounded-xl p-4 mb-3'):
+                    with ui.row().classes('w-full justify-between items-start'):
+                        with ui.column().classes('flex-1'):
+                            ui.label(product.retailer.upper() if product.retailer else 'UNKNOWN').classes('text-emerald-400 text-xs font-semibold tracking-widest')
+                            ui.label(product.product_name or 'Product').classes('text-white font-medium break-words')
+                            ui.label(product.product_url[:60] + '...' if len(product.product_url) > 60 else product.product_url).classes('text-gray-500 text-xs break-all')
+                        
+                        # Current price
+                        with ui.column().classes('items-end ml-4'):
+                            ui.label(f'${product.current_price:.2f}' if product.current_price else 'N/A').classes('text-xl font-bold text-white')
+                            
+                            # Price change indicators
+                            if product.current_price == product.lowest_price and product.price_history and len(product.price_history) > 1:
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.icon('local_fire_department', size='xs', color='orange')
+                                    ui.label('Lowest!').classes('text-orange-400 text-xs')
+                            
+                            drop_pct = product._calculate_drop_percent()
+                            if drop_pct and drop_pct > 0:
+                                ui.label(f'↓ {drop_pct}%').classes('text-emerald-400 text-xs')
+                    
+                    # Price range
+                    if product.lowest_price and product.highest_price:
+                        with ui.row().classes('w-full gap-4 mt-3 pt-3 border-t border-gray-700/30'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.label('Low:').classes('text-gray-500 text-xs')
+                                ui.label(f'${product.lowest_price:.2f}').classes('text-emerald-400 text-sm font-medium')
+                            with ui.row().classes('items-center gap-2'):
+                                ui.label('High:').classes('text-gray-500 text-xs')
+                                ui.label(f'${product.highest_price:.2f}').classes('text-red-400 text-sm font-medium')
+                            with ui.row().classes('items-center gap-2'):
+                                ui.label('Tracking since:').classes('text-gray-500 text-xs')
+                                ui.label(product.first_tracked_at[:10] if product.first_tracked_at else 'N/A').classes('text-gray-400 text-sm')
+                    
+                    # Alert status
+                    if product.alert_enabled and product.target_price:
+                        with ui.row().classes('w-full items-center gap-2 mt-2'):
+                            ui.icon('notifications_active', size='xs', color='blue')
+                            ui.label(f'Alert when price drops below ${product.target_price:.2f}').classes('text-blue-400 text-xs')
+
+
 def create_footer():
     """Create footer."""
     with ui.element('footer').classes('w-full bg-gray-900/50 border-t border-gray-800/50 mt-auto'):
@@ -1037,9 +1181,19 @@ async def settings_page():
         create_settings()
         create_footer()
 
+@ui.page('/tracking')
+async def tracking_page():
+    ui.add_head_html(CUSTOM_CSS)
+    ui.dark_mode().enable()
+    
+    create_navbar()
+    with ui.column().classes('w-full min-h-screen bg-gray-900 pt-16'):
+        create_tracking()
+        create_footer()
+
 @ui.page('/health')
 async def health():
-    return {'status': 'healthy', 'version': '0.6.0'}
+    return {'status': 'healthy', 'version': '0.7.0'}
 
 # =============================================================================
 # Main
