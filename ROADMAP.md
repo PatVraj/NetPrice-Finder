@@ -6,16 +6,82 @@
 
 ---
 
-## 📌 Current Version: `v0.2.0` – Core Infrastructure
+## 📌 Current Version: `v0.7.0` – Data Persistence & User Experience
 
 **Status:** 🔄 In Progress  
 **Started:** 2026-01-03  
-**Target Completion:** 2026-01-06  
+**Target Completion:** 2026-01-07  
 **Last Updated:** 2026-01-03
 
 ---
 
 ## 📊 Detailed Version History
+
+---
+
+## 🏷️ v0.7.0 – Data Persistence & User Experience
+**Status:** 🔄 In Progress  
+**Started:** 2026-01-03  
+**Target Completion:** 2026-01-07
+
+### Branch: `feature/data-persistence`
+**Created:** 2026-01-03  
+**Merged:** Open  
+**Purpose:** Persistent storage for users, card wallets, and search history
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `pending` | 2026-01-03 | 6 files | SQLite user database with full persistence |
+
+#### Session: 2026-01-03 – Data Persistence Implementation
+
+**Files Created:**
+- `app-frontend/database.py` – SQLite database layer with UserDatabase class
+- `app-frontend/tests/__init__.py` – Test module initialization
+- `app-frontend/tests/test_database.py` – 30+ test cases for database operations
+
+**Files Modified:**
+- `app-frontend/main.py` – Integrated SQLite database for all user operations
+- `app-frontend/requirements.txt` – Added bcrypt for secure password hashing
+- `docker-compose.yml` – Added USER_DB_PATH and DEMO_MODE environment variables
+
+**Key Features Implemented:**
+1. **SQLite User Database:** Full schema with users, user_cards, search_history tables
+2. **Password Hashing:** bcrypt with SHA256 fallback for security
+3. **Card Wallet Persistence:** Users' credit cards saved to database
+4. **Search History Tracking:** Every search saved with results for analytics
+5. **User Settings:** Tax rate and location preferences persist
+6. **Admin Dashboard:** Now shows real user counts from database
+7. **Settings Page Enhanced:** Shows account info, all 50 US states, savings stats
+
+**Database Schema:**
+```sql
+users (id, email, password_hash, is_admin, tax_rate, location, created_at, updated_at)
+user_cards (id, user_id, card_id, name, issuer, base_rate, bonus_categories, is_custom)
+search_history (id, user_id, product_url, product_name, retailer, product_price, net_price, total_savings, best_cashback_platform, best_cashback_rate, searched_at)
+```
+
+**Test Coverage:**
+- Password hashing/verification (5 tests)
+- User CRUD operations (12 tests)
+- Card wallet management (7 tests)
+- Search history tracking (6 tests)
+- Data persistence across reconnects (2 tests)
+
+#### Tasks Progress:
+
+| Task | Status | Priority |
+|------|--------|----------|
+| SQLite database for user accounts | ✅ | 🔴 Critical |
+| Persist card wallet per user | ✅ | 🔴 Critical |
+| Search history storage | ✅ | 🟡 Medium |
+| Price tracking over time | ⬜ | 🟡 Medium |
+| Integrate RetailerIntelligence with frontend | ⬜ | 🟡 Medium |
+| User settings persistence (tax rate, location) | ✅ | 🟢 Low |
+
+**Milestone:** User data persists across container restarts
 
 ---
 
@@ -207,6 +273,22 @@
 | Verify tests run in Docker containers | ✅ | 🟡 Medium |
 
 **Milestone:** ✅ 70+ test cases and full API/features documentation
+
+---
+
+### Phase 7: Data Persistence & User Experience 💾
+**Target:** v0.7.0 | **Status:** 🔄 In Progress
+
+| Task | Status | Priority |
+|------|--------|----------|
+| SQLite database for user accounts | ✅ | 🔴 Critical |
+| Persist card wallet per user | ✅ | 🔴 Critical |
+| Search history storage | ✅ | 🟡 Medium |
+| Price tracking over time | ⬜ | 🟡 Medium |
+| Integrate RetailerIntelligence with frontend | ⬜ | 🟡 Medium |
+| User settings persistence (tax rate, location) | ✅ | 🟢 Low |
+
+**Milestone:** User data persists across container restarts
 
 ---
 
@@ -631,5 +713,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-05 (Modern UI refactor with auth and admin dashboard)</em>
+  <em>Last updated: 2026-01-03 (Created feature/data-persistence branch for Phase 7)</em>
 </p>
