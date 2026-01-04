@@ -371,6 +371,7 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 
 | Commit | Date | Files Changed | Description |
 |--------|------|---------------|-------------|
+| `b5d9675` | 2026-01-05 | 1 file | Add responsive UI design for all screen sizes |
 | `946ba91` | 2026-01-05 | 1 file | Modern UI refactor with auth and admin dashboard |
 | `10fae56` | 2026-01-05 | 9 files | Remove promo code functionality entirely |
 | `8169060` | 2026-01-03 | 4 files | Improve UI progress logs and update remaining scrapers |
@@ -409,6 +410,47 @@ Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
 **Code Removed:** ~700 lines of dead promo code functionality
 
 **Note:** The `intelligence-core/retailer/` module still has promo code infrastructure (StoredPromoCode, etc.) but it's not actively used. Left in place for potential future use with verified retailer promo codes.
+
+---
+
+#### Session: 2026-01-05 – Responsive UI Design
+
+**Commit:** `b5d9675`  
+**Feature:** Full responsive design across all screen sizes
+
+**Changes Made:**
+1. **Extended CUSTOM_CSS:**
+   - Added responsive typography with `clamp()` for fluid sizing
+   - Added `.stats-grid` CSS Grid with 1→2→4 column breakpoints
+   - Added `.responsive-container` with max-width breakpoints
+   - Added mobile nav adjustments, card padding, table overflow
+
+2. **Responsive Navbar:**
+   - Fixed positioning at top with z-index
+   - Desktop nav links hidden on mobile (`hidden sm:block`)
+   - Mobile menu items shown in dropdown
+
+3. **Responsive Pages:**
+   - Hero search: `min-h-[calc(100vh-4rem)]`, responsive padding, fluid title
+   - Landing page: Responsive padding, smaller text on mobile
+   - Results page: Responsive padding, `break-words` for long names
+   - Login/Register: Responsive form padding and font sizes
+   - Admin dashboard: CSS Grid for stats, responsive tables
+   - Cards page: 1-2-3 column grid layout based on screen size
+   - Settings page: Responsive padding and spacing
+   - Footer: Centered on mobile, justified on desktop
+
+**Key CSS Patterns Applied:**
+- Padding: `px-4 sm:px-6 py-6 sm:py-8`
+- Font sizes: `text-2xl sm:text-3xl`
+- Card padding: `p-4 sm:p-6`
+- Card widths: `w-full sm:w-56` for grid items
+- Visibility: `hidden sm:block` for desktop-only elements
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `app-frontend/main.py` | 207 insertions, 74 deletions – responsive CSS + component updates |
 
 ---
 
