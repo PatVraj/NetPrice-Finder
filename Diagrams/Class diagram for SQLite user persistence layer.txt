@@ -1,0 +1,72 @@
+classDiagram
+    class User {
+        +int id
+        +str email
+        +str password_hash
+        +bool is_admin
+        +float tax_rate
+        +str location
+        +str created_at
+        +str updated_at
+    }
+
+    class UserCard {
+        +int id
+        +int user_id
+        +str card_id
+        +str name
+        +str issuer
+        +float base_rate
+        +List~Dict~ bonus_categories
+        +bool is_custom
+        +str created_at
+        +dict to_dict()
+    }
+
+    class SearchHistory {
+        +int id
+        +int user_id
+        +str product_url
+        +str product_name
+        +str retailer
+        +float product_price
+        +float net_price
+        +float total_savings
+        +str best_cashback_platform
+        +float best_cashback_rate
+        +str searched_at
+    }
+
+    class UserDatabase {
+        -str db_path
+        -int SCHEMA_VERSION
+        +UserDatabase(db_path)
+        +User create_user(email, password, is_admin)
+        +User get_user_by_email(email)
+        +User get_user_by_id(user_id)
+        +User authenticate_user(email, password)
+        +bool update_user_settings(user_id, tax_rate, location)
+        +List~User~ get_all_users()
+        +int get_user_count()
+        +UserCard add_card_to_wallet(user_id, card_id, name, issuer, base_rate, bonus_categories, is_custom)
+        +List~UserCard~ get_user_cards(user_id)
+        +bool remove_card_from_wallet(user_id, card_id)
+        +int clear_user_wallet(user_id)
+        +SearchHistory add_search_history(user_id, product_url, product_price, net_price, product_name, retailer, total_savings, best_cashback_platform, best_cashback_rate)
+        +List~SearchHistory~ get_user_search_history(user_id, limit)
+        +int get_total_searches()
+        +List~dict~ get_top_retailers(limit)
+        +dict get_user_savings_stats(user_id)
+    }
+
+    class PasswordUtils {
+        +str hash_password(password)
+        +bool verify_password(password, password_hash)
+    }
+
+    UserDatabase "1" --> "*" User : manages
+    UserDatabase "1" --> "*" UserCard : manages
+    UserDatabase "1" --> "*" SearchHistory : manages
+    User "1" --> "*" UserCard : owns
+    User "1" --> "*" SearchHistory : has
+    PasswordUtils <.. UserDatabase : uses

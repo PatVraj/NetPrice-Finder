@@ -120,6 +120,9 @@ class SavingsResponse(BaseModel):
     cashback_value: float
     # All cashback rates found (for transparency)
     all_cashback_rates: List[dict] = Field(default_factory=list)
+    # Cache metadata
+    cashback_from_cache: bool = False
+    cashback_last_updated: str = "Unknown"
     card_name: Optional[str]
     card_reward_percent: float
     card_reward_value: float
@@ -354,6 +357,8 @@ async def find_best_price(request: ProductSearchRequest, req: Request):
                 cashback_percent=savings.cashback_percent,
                 cashback_value=savings.cashback_amount,
                 all_cashback_rates=all_rates,
+                cashback_from_cache=result.cashback_from_cache,
+                cashback_last_updated=result.cashback_last_updated,
                 card_name=savings.credit_card_name,
                 card_reward_percent=savings.credit_card_rate,
                 card_reward_value=savings.credit_card_rewards,

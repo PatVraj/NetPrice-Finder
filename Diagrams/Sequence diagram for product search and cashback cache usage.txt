@@ -1,0 +1,45 @@
+sequenceDiagram
+    actor User
+    participant Frontend as AppFrontend
+    participant Api as IntelligenceAPI
+    participant Optimizer as NetPriceOptimizer
+    participant Monitor as CashbackMonitor
+    participant Intel as RetailerIntelligence
+    participant Redis as RedisCache
+    participant SQLite as CashbackSQLite
+
+    User->>Frontend: Submit product URL
+    Frontend->>Api: POST /find_best_price
+    Api->>Optimizer: optimize(query)
+    Optimizer->>Monitor: find_best_cashback(merchant, platforms, force_refresh=false)
+
+    alt RetailerIntelligence cache hit
+        Monitor->>Intel: get_deals(merchant, force_refresh=false)
+        Intel->>Redis: lookup cached deals
+        alt Redis hit and fresh
+            Redis-->>Intel: cached deals
+        else Redis miss or stale
+            Intel->>SQLite: query stored deals
+            SQLite-->>Intel: stored deals
+        end
+        Intel-->>Monitor: RetailerDeals(cashback_offers, last_scraped_at)
+        Monitor-->>Monitor: build MerchantCashback
+        Note over Monitor: _from_cache=true
+        Monitor-->>Optimizer: MerchantCashback(from_cache=true)
+    else No RetailerIntelligence or cache miss
+        alt in_memory_cache_hit
+            Monitor-->>Optimizer: MerchantCashback(from_cache=true)
+        else fresh_scrape_required
+            Monitor-->>Monitor: scrape all platforms
+            Monitor-->>Monitor: build MerchantCashback(from_cache=false)
+            Monitor->>Intel: _store_to_intelligence(merchant, cashback)
+            Monitor->>Redis: set_deals(...)
+            Monitor->>SQLite: save_cashback_offers(...)
+            Monitor-->>Optimizer: MerchantCashback(from_cache=false)
+        end
+    end
+
+    Optimizer-->>Optimizer: set _cashback_from_cache, _cashback_last_updated
+    Optimizer-->>Api: OptimizationResult(cashback_from_cache, cashback_last_updated)
+    Api-->>Frontend: SavingsResponse(cashback_from_cache, cashback_last_updated)
+    Frontend-->>User: Show rates and "Rates updated X ago"

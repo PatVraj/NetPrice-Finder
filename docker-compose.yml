@@ -27,6 +27,8 @@ services:
       - FIREFLY_API_TOKEN=${FIREFLY_API_TOKEN:-}
       - OLLAMA_API_URL=http://intelligence-core:11434
       - SCRAPER_API_URL=http://scraper-engine:5000
+      - USER_DB_PATH=/app/data/users.db
+      - DEMO_MODE=${DEMO_MODE:-false}
     volumes:
       - ./app-frontend:/app
       - frontend_data:/app/data

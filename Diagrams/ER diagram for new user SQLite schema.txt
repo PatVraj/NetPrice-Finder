@@ -1,0 +1,40 @@
+erDiagram
+    users {
+        int id PK
+        text email
+        text password_hash
+        boolean is_admin
+        real tax_rate
+        text location
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    user_cards {
+        int id PK
+        int user_id FK
+        text card_id
+        text name
+        text issuer
+        real base_rate
+        text bonus_categories
+        boolean is_custom
+        timestamp created_at
+    }
+
+    search_history {
+        int id PK
+        int user_id FK
+        text product_url
+        text product_name
+        text retailer
+        real product_price
+        real net_price
+        real total_savings
+        text best_cashback_platform
+        real best_cashback_rate
+        timestamp searched_at
+    }
+
+    users ||--o{ user_cards : has
+    users ||--o{ search_history : has

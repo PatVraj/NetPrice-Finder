@@ -22,16 +22,12 @@ import hashlib
 import secrets
 import logging
 
-# Optional: Use bcrypt if available, fallback to sha256 with warning
-try:
-    import bcrypt
-    BCRYPT_AVAILABLE = True
-except ImportError:
-    BCRYPT_AVAILABLE = False
-    logging.warning(
-        "⚠️ bcrypt not installed. Using SHA256 for password hashing. "
-        "For production, install bcrypt: pip install bcrypt"
-    )
+# Import our SQLite database layer
+from database import (
+    UserDatabase, get_user_database,
+    User, UserCard, SearchHistory,
+    hash_password, verify_password
+)
 
 # =============================================================================
 # Configuration
@@ -80,6 +76,9 @@ class PriceResult:
     cashback_percent: float = 0.0
     cashback_value: float = 0.0
     all_cashback_rates: List[dict] = field(default_factory=list)
+    # Cache metadata
+    cashback_from_cache: bool = False
+    cashback_last_updated: str = "Unknown"
     card_name: Optional[str] = None
     card_reward_percent: float = 0.0
     card_reward_value: float = 0.0
@@ -113,65 +112,44 @@ class AppState:
     """Global application state."""
     redis_client: Optional[redis.Redis] = None
     current_result: Optional[PriceResult] = None
-    user_cards: List[UserCard] = []
-    user_tax_rate: Optional[float] = None
-    user_location: Optional[str] = None
-    users_db: Dict[str, User] = {}
+    db: Optional[UserDatabase] = None
 
 state = AppState()
 
-# Demo admin user - only created when DEMO_MODE=true
-if DEMO_MODE:
-    logging.info("🧪 DEMO_MODE enabled - creating demo admin user")
-    state.users_db["admin@netprice.local"] = User(
-        id="1",
-        email="admin@netprice.local",
-        password_hash="$demo$admin123",  # Special marker for demo user
-        is_admin=True,
-        created_at=datetime.now().isoformat()
-    )
+# Initialize database
+def init_database():
+    """Initialize the SQLite database."""
+    state.db = get_user_database()
+    
+    # Create demo admin user if DEMO_MODE and doesn't exist
+    if DEMO_MODE:
+        existing = state.db.get_user_by_email("admin@netprice.local")
+        if not existing:
+            logging.info("🧪 DEMO_MODE enabled - creating demo admin user")
+            state.db.create_user(
+                email="admin@netprice.local",
+                password="admin123",
+                is_admin=True
+            )
+
+# Initialize on import
+init_database()
 
 # =============================================================================
 # Authentication Helpers
 # =============================================================================
 
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt (preferred) or SHA256 with salt."""
-    if BCRYPT_AVAILABLE:
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    else:
-        # Fallback: salted SHA256 (not ideal, but better than plain SHA256)
-        salt = secrets.token_hex(16)
-        hashed = hashlib.sha256((salt + password).encode()).hexdigest()
-        return f"$sha256${salt}${hashed}"
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its hash."""
-    # Handle demo user special case
-    if password_hash.startswith("$demo$"):
-        return DEMO_MODE and password == password_hash[6:]
-    
-    if BCRYPT_AVAILABLE and password_hash.startswith("$2"):
-        # bcrypt hash
-        return bcrypt.checkpw(password.encode(), password_hash.encode())
-    elif password_hash.startswith("$sha256$"):
-        # Salted SHA256 fallback
-        parts = password_hash.split("$")
-        if len(parts) == 4:
-            salt = parts[2]
-            expected_hash = parts[3]
-            return hashlib.sha256((salt + password).encode()).hexdigest() == expected_hash
-    else:
-        # Legacy plain SHA256 (for migration compatibility)
-        return hashlib.sha256(password.encode()).hexdigest() == password_hash
-    return False
-
 def get_current_user() -> Optional[User]:
-    """Get the currently logged in user."""
+    """Get the currently logged in user from database."""
     user_email = app.storage.user.get('email')
-    if user_email and user_email in state.users_db:
-        return state.users_db[user_email]
+    if user_email and state.db:
+        return state.db.get_user_by_email(user_email)
     return None
+
+def get_current_user_id() -> Optional[int]:
+    """Get the current user's ID."""
+    user = get_current_user()
+    return user.id if user else None
 
 def is_authenticated() -> bool:
     """Check if user is authenticated."""
@@ -438,17 +416,17 @@ def create_navbar():
     """Create the navigation bar."""
     with ui.header().classes('bg-gray-900/95 backdrop-blur-md border-b border-gray-800/50 fixed w-full top-0 z-50'):
         with ui.row().classes('w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 items-center justify-between'):
-            with ui.link('/', target='_self').classes('no-underline'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.html('<span class="text-2xl">💰</span>', sanitize=False)
-                    ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
+            # Logo - clickable to go home
+            with ui.row().classes('items-center gap-2 cursor-pointer').on('click', lambda: ui.navigate.to('/')):
+                ui.html('<span class="text-2xl">💰</span>', sanitize=False)
+                ui.label('NetPrice').classes('text-lg sm:text-xl font-bold text-white tracking-tight')
             
             with ui.row().classes('items-center gap-2 sm:gap-4'):
                 if is_authenticated():
                     user = get_current_user()
-                    # Hide text links on mobile, show on sm+
+                    # Navigation links
                     ui.link('Search', '/').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
-                    ui.link('Cards', '/cards').classes('hidden sm:block text-gray-400 hover:text-white transition-colors no-underline text-sm')
+                    ui.link('Cards', '/cards').classes('text-gray-400 hover:text-white transition-colors no-underline text-sm')
                     
                     if is_admin():
                         ui.link('Admin', '/admin').classes('hidden sm:block text-emerald-400 hover:text-emerald-300 transition-colors no-underline text-sm font-medium')
@@ -520,6 +498,22 @@ def create_hero_search():
                     result = await find_best_price(query)
                     if result:
                         state.current_result = result
+                        
+                        # Save to search history
+                        user_id = get_current_user_id()
+                        if user_id:
+                            state.db.add_search_history(
+                                user_id=user_id,
+                                product_url=query,
+                                product_price=result.product_price,
+                                net_price=result.net_price,
+                                product_name=result.product_name,
+                                retailer=result.retailer,
+                                total_savings=result.total_savings,
+                                best_cashback_platform=result.cashback_platform,
+                                best_cashback_rate=result.cashback_percent
+                            )
+                        
                         ui.navigate.to('/results')
                     else:
                         ui.notify('Could not analyze product', type='warning')
@@ -599,6 +593,15 @@ def create_results():
                                 if is_best:
                                     ui.badge('Best').props('color=positive dense')
                             ui.label(f'{cb.rate}%' if cb.found else '—').classes('text-sm ' + ('text-emerald-400 font-medium' if cb.found else 'text-gray-600'))
+                    
+                    # Show cache status
+                    with ui.row().classes('w-full justify-center items-center gap-2 pt-3 mt-2 border-t border-gray-700/30'):
+                        if r.cashback_from_cache:
+                            ui.icon('cached', size='xs', color='gray')
+                            ui.label(f'Rates updated {r.cashback_last_updated}').classes('text-xs text-gray-500')
+                        else:
+                            ui.icon('refresh', size='xs', color='emerald')
+                            ui.label('Fresh data').classes('text-xs text-emerald-500')
 
 def create_login():
     """Create login form."""
@@ -617,10 +620,11 @@ def create_login():
                 if not e or not p:
                     ui.notify('Fill in all fields', type='warning')
                     return
-                user = state.users_db.get(e)
-                if user and verify_password(p, user.password_hash):
+                user = state.db.authenticate_user(e, p)
+                if user:
                     app.storage.user['authenticated'] = True
-                    app.storage.user['email'] = e
+                    app.storage.user['email'] = user.email
+                    app.storage.user['user_id'] = user.id
                     ui.notify('Welcome!', type='positive')
                     ui.navigate.to('/')
                 else:
@@ -653,19 +657,15 @@ def create_register():
                 if p != c:
                     ui.notify('Passwords do not match', type='warning')
                     return
-                if e in state.users_db:
+                
+                user = state.db.create_user(email=e, password=p, is_admin=False)
+                if not user:
                     ui.notify('Email already registered', type='warning')
                     return
                 
-                state.users_db[e] = User(
-                    id=secrets.token_hex(8),
-                    email=e,
-                    password_hash=hash_password(p),
-                    is_admin=False,
-                    created_at=datetime.now().isoformat()
-                )
                 app.storage.user['authenticated'] = True
-                app.storage.user['email'] = e
+                app.storage.user['email'] = user.email
+                app.storage.user['user_id'] = user.id
                 ui.notify('Account created!', type='positive')
                 ui.navigate.to('/')
             
@@ -677,7 +677,7 @@ def create_register():
 
 async def create_admin():
     """Create admin dashboard with real data from SQLite."""
-    if not is_admin():
+    if not is_admin() or not state.db:
         ui.navigate.to('/')
         return
     
@@ -700,7 +700,7 @@ async def create_admin():
                 ('Retailers', str(total_retailers), 'store', 'emerald'),
                 ('Cashback Entries', str(total_cashback), 'attach_money', 'blue'),
                 ('Total Queries', f'{total_queries:,}', 'search', 'purple'),
-                ('Users', str(len(state.users_db)), 'people', 'amber'),
+                ('Users', str(state.db.get_user_count()), 'people', 'amber'),
             ]:
                 with ui.card().classes('stat-card rounded-xl p-4 sm:p-5'):
                     with ui.row().classes('items-center gap-3 sm:gap-4'):
@@ -753,45 +753,55 @@ async def create_admin():
                     ui.label('Active' if active else 'Inactive').classes('text-gray-400 text-xs sm:text-sm hidden sm:block')
                     ui.label(rate).classes('text-emerald-400 font-medium text-sm sm:text-base')
         
-        # Users section (from in-memory state)
+        # Users section (from database)
         with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
             ui.label('Users').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
-            for u in state.users_db.values():
-                with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700/30 flex-wrap gap-2'):
-                    ui.label(u.email).classes('text-white text-sm sm:text-base break-all')
-                    ui.badge('Admin' if u.is_admin else 'User').props(f'color={"positive" if u.is_admin else "gray"}')
-                    ui.label(u.created_at[:10]).classes('text-gray-500 text-xs sm:text-sm hidden sm:block')
+            all_users = state.db.get_all_users()
+            if not all_users:
+                ui.label('No users yet.').classes('text-gray-400 text-sm')
+            else:
+                for u in all_users:
+                    with ui.row().classes('w-full justify-between items-center py-2 border-b border-gray-700/30 flex-wrap gap-2'):
+                        ui.label(u.email).classes('text-white text-sm sm:text-base break-all')
+                        ui.badge('Admin' if u.is_admin else 'User').props(f'color={"positive" if u.is_admin else "gray"}')
+                        ui.label(u.created_at[:10] if u.created_at else '').classes('text-gray-500 text-xs sm:text-sm hidden sm:block')
 
 def create_cards():
-    """Create cards page."""
-    # Redirect if not authenticated
-    if not is_authenticated():
+    """Create cards page with database persistence."""
+    # Redirect if not authenticated or database unavailable
+    if not is_authenticated() or not state.db:
+        ui.navigate.to('/login')
+        return
+    
+    user_id = get_current_user_id()
+    if not user_id:
         ui.navigate.to('/login')
         return
     
     cards_container = None
     
     def render_wallet():
-        """Render the wallet cards list."""
+        """Render the wallet cards list from database."""
         nonlocal cards_container
         if cards_container:
             cards_container.clear()
         
         with cards_container:
-            if not state.user_cards:
+            user_cards = state.db.get_user_cards(user_id)
+            if not user_cards:
                 with ui.column().classes('items-center py-6 sm:py-8'):
                     ui.icon('credit_card_off', size='xl', color='gray')
                     ui.label('No cards added').classes('text-gray-400 mt-4')
             else:
-                for i, card in enumerate(state.user_cards):
+                for card in user_cards:
                     with ui.row().classes('w-full justify-between items-center p-3 sm:p-4 bg-gray-800/50 rounded-lg mb-2 flex-wrap gap-2'):
                         with ui.column():
                             ui.label(card.name).classes('text-white font-medium text-sm sm:text-base')
-                            ui.label(card.issuer).classes('text-gray-400 text-xs sm:text-sm')
+                            ui.label(f'{card.issuer} · {card.base_rate}% base').classes('text-gray-400 text-xs sm:text-sm')
                         
-                        def remove_card(index=i, card_name=card.name):
-                            state.user_cards.pop(index)
+                        def remove_card(card_id=card.card_id, card_name=card.name):
+                            state.db.remove_card_from_wallet(user_id, card_id)
                             ui.notify(f'Removed {card_name}', type='info')
                             render_wallet()
                         
@@ -810,51 +820,139 @@ def create_cards():
         with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4 sm:mt-6'):
             ui.label('Add Cards').classes('text-base sm:text-lg font-semibold text-white mb-4')
             
-            cards = [
-                UserCard("Chase Sapphire Preferred", "Chase", 1.0, ["3x Dining", "3x Travel"]),
-                UserCard("Amex Gold", "Amex", 1.0, ["4x Dining", "4x Groceries"]),
-                UserCard("Citi Double Cash", "Citi", 2.0, ["2% Everything"]),
+            # Popular cards to choose from (use card_id as key)
+            available_cards = [
+                {"card_id": "chase_sapphire_preferred", "name": "Chase Sapphire Preferred", "issuer": "Chase", "base_rate": 1.0, "highlights": ["3x Dining", "3x Travel"]},
+                {"card_id": "amex_gold", "name": "Amex Gold", "issuer": "Amex", "base_rate": 1.0, "highlights": ["4x Dining", "4x Groceries"]},
+                {"card_id": "citi_double_cash", "name": "Citi Double Cash", "issuer": "Citi", "base_rate": 2.0, "highlights": ["2% Everything"]},
+                {"card_id": "chase_freedom_flex", "name": "Chase Freedom Flex", "issuer": "Chase", "base_rate": 1.0, "highlights": ["5x Rotating", "3x Dining"]},
+                {"card_id": "discover_it", "name": "Discover it", "issuer": "Discover", "base_rate": 1.0, "highlights": ["5x Rotating"]},
+                {"card_id": "amazon_prime_visa", "name": "Amazon Prime Visa", "issuer": "Chase", "base_rate": 1.0, "highlights": ["5x Amazon", "2x Dining"]},
             ]
             
             with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4'):
-                for c in cards:
+                for c in available_cards:
                     with ui.card().classes('bg-gray-800/50 hover:bg-gray-700/50 transition p-4 rounded-xl cursor-pointer'):
-                        ui.label(c.name).classes('text-white font-medium text-sm')
-                        ui.label(c.issuer).classes('text-gray-400 text-xs')
-                        ui.label(' · '.join(c.highlights)).classes('text-emerald-400 text-xs mt-2')
+                        ui.label(c["name"]).classes('text-white font-medium text-sm')
+                        ui.label(c["issuer"]).classes('text-gray-400 text-xs')
+                        ui.label(' · '.join(c["highlights"])).classes('text-emerald-400 text-xs mt-2')
                         
-                        async def add(card=c):
-                            state.user_cards.append(card)
-                            ui.notify(f'Added {card.name}', type='positive')
+                        def add_card(card=c):
+                            result = state.db.add_card_to_wallet(
+                                user_id=user_id,
+                                card_id=card["card_id"],
+                                name=card["name"],
+                                issuer=card["issuer"],
+                                base_rate=card["base_rate"],
+                                is_custom=False
+                            )
+                            if result:
+                                ui.notify(f'Added {card["name"]}', type='positive')
+                                render_wallet()
+                            else:
+                                ui.notify(f'{card["name"]} already in wallet', type='info')
                         
-                        ui.button('Add', on_click=add).props('flat color=primary size=sm').classes('mt-3')
+                        ui.button('Add', on_click=add_card).props('flat color=primary size=sm').classes('mt-3')
 
 def create_settings():
-    """Create settings page."""
-    # Redirect if not authenticated
-    if not is_authenticated():
+    """Create settings page with database persistence."""
+    # Redirect if not authenticated or database unavailable
+    if not is_authenticated() or not state.db:
         ui.navigate.to('/login')
         return
     
+    user = get_current_user()
+    if not user:
+        ui.navigate.to('/login')
+        return
+    
+    # US States with tax rates
+    states = [
+        "Alabama", "Alaska", "Arizona", "Arkansas", "California",
+        "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
+        "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa",
+        "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
+        "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri",
+        "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
+        "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
+        "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
+        "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+        "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+    ]
+    
     def on_location_change(e):
-        state.user_location = e.value
+        state.db.update_user_settings(user.id, location=e.value)
         ui.notify(f'Location set to {e.value}', type='positive')
+    
+    def on_tax_change(e):
+        try:
+            if e.value and e.value.strip():
+                # User entered a value - update tax rate
+                tax_rate = float(e.value)
+                state.db.update_user_settings(user.id, tax_rate=tax_rate)
+                ui.notify('Tax rate saved', type='positive')
+            else:
+                # User cleared the field - reset to auto-detection
+                state.db.update_user_settings(user.id, clear_tax_rate=True)
+                ui.notify('Tax rate cleared (using auto-detection)', type='positive')
+        except ValueError:
+            ui.notify('Invalid tax rate', type='warning')
     
     with ui.column().classes('w-full max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8'):
         ui.button('← Back', on_click=lambda: ui.navigate.to('/')).props('flat color=gray size=sm')
         
         ui.label('Settings').classes('text-2xl sm:text-3xl font-bold text-white mt-4 mb-6 sm:mb-8')
         
-        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+        # Account info
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mb-4'):
+            ui.label('Account').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            ui.label(f'Email: {user.email}').classes('text-gray-300')
+            ui.label(f'Member since: {user.created_at[:10] if user.created_at else "N/A"}').classes('text-gray-400 text-sm')
+        
+        # Card wallet quick access
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mb-4'):
+            with ui.row().classes('w-full justify-between items-center'):
+                with ui.column():
+                    ui.label('My Cards').classes('text-base sm:text-lg font-semibold text-white')
+                    card_count = len(state.db.get_user_cards(user.id))
+                    ui.label(f'{card_count} card{"s" if card_count != 1 else ""} in wallet').classes('text-gray-400 text-sm')
+                ui.button('Manage Cards', on_click=lambda: ui.navigate.to('/cards')).props('color=primary unelevated size=sm')
+        
+        # Location settings
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mb-4'):
             ui.label('Location').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            ui.label('Your location helps us calculate accurate sales tax.').classes('text-gray-400 text-sm mb-4')
             
-            states = ["California", "Texas", "New York", "Florida", "Oregon"]
             ui.select(
                 states, 
                 label='State', 
-                value=state.user_location,
+                value=user.location,
                 on_change=on_location_change
             ).classes('w-full')
+        
+        # Tax settings
+        with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6'):
+            ui.label('Tax Rate Override').classes('text-base sm:text-lg font-semibold text-white mb-4')
+            ui.label('Leave blank to use automatic detection based on location.').classes('text-gray-400 text-sm mb-4')
+            
+            ui.input(
+                'Custom Tax Rate (%)',
+                value=str(user.tax_rate) if user.tax_rate else '',
+                on_change=on_tax_change
+            ).props('type=number step=0.01 min=0 max=15').classes('w-full')
+        
+        # Savings stats
+        stats = state.db.get_user_savings_stats(user.id)
+        if stats['total_searches'] > 0:
+            with ui.card().classes('w-full glass rounded-xl p-4 sm:p-6 mt-4'):
+                ui.label('Your Savings').classes('text-base sm:text-lg font-semibold text-white mb-4')
+                with ui.row().classes('gap-6'):
+                    with ui.column():
+                        ui.label(f'{stats["total_searches"]}').classes('text-2xl font-bold text-emerald-400')
+                        ui.label('Searches').classes('text-gray-400 text-sm')
+                    with ui.column():
+                        ui.label(f'${stats["total_saved"]:.2f}').classes('text-2xl font-bold text-emerald-400')
+                        ui.label('Total Saved').classes('text-gray-400 text-sm')
 
 def create_footer():
     """Create footer."""

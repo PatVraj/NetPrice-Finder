@@ -22,6 +22,9 @@ pydantic-settings>=2.6.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.17
 
+# Security
+bcrypt>=4.2.0
+
 # Date/Time
 python-dateutil>=2.9.0
 

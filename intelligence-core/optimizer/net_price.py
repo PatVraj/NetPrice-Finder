@@ -182,6 +182,11 @@ class OptimizationResult:
     # All cashback offers found (for transparency - show what each platform returned)
     all_cashback_offers: list[dict] = field(default_factory=list)
     
+    # Cache metadata (from RetailerIntelligence)
+    cashback_from_cache: bool = False
+    cashback_cache_age_seconds: float = 0.0
+    cashback_last_updated: str = "Unknown"
+    
     # Comparison stats
     cheapest_gross: float = 0.0
     cheapest_net: float = 0.0
@@ -199,6 +204,9 @@ class OptimizationResult:
             "options": [o.to_dict() for o in self.options],
             "best_option": self.best_option.to_dict() if self.best_option else None,
             "all_cashback_offers": self.all_cashback_offers,
+            "cashback_from_cache": self.cashback_from_cache,
+            "cashback_cache_age_seconds": self.cashback_cache_age_seconds,
+            "cashback_last_updated": self.cashback_last_updated,
             "cheapest_gross": self.cheapest_gross,
             "cheapest_net": self.cheapest_net,
             "max_savings": self.max_savings,
@@ -672,6 +680,11 @@ class NetPriceOptimizer:
         
         # Store ALL cashback offers found (for transparency in UI)
         self._found_cashback_offers: list[dict] = []
+        
+        # Cache status from last cashback lookup
+        self._cashback_from_cache: bool = False
+        self._cashback_cache_age_seconds: float = 0.0
+        self._cashback_last_updated: str = "Unknown"
     
     async def _get_cashback_monitor(self):
         """Lazy load cashback monitor."""
@@ -706,8 +719,11 @@ class NetPriceOptimizer:
         """
         start_time = asyncio.get_event_loop().time()
         
-        # Reset cashback offers for new optimization
+        # Reset cashback offers and cache status for new optimization
         self._found_cashback_offers = []
+        self._cashback_from_cache = False
+        self._cashback_cache_age_seconds = 0.0
+        self._cashback_last_updated = "Unknown"
         
         logger.info(f"{'#'*70}")
         logger.info(f"[OPTIMIZER] Starting price optimization for: {query[:80]}...")
@@ -727,6 +743,11 @@ class NetPriceOptimizer:
             
             result.options = options
             result.all_cashback_offers = self._found_cashback_offers
+            
+            # Include cache metadata
+            result.cashback_from_cache = self._cashback_from_cache
+            result.cashback_cache_age_seconds = self._cashback_cache_age_seconds
+            result.cashback_last_updated = self._cashback_last_updated
             
             if options:
                 # Sort by net price
@@ -814,6 +835,11 @@ class NetPriceOptimizer:
         try:
             # Get cashback offers from all platforms
             cashback_result = await cashback_monitor.find_best_cashback(retailer_name)
+            
+            # Capture cache metadata
+            self._cashback_from_cache = getattr(cashback_result, '_from_cache', False)
+            self._cashback_cache_age_seconds = getattr(cashback_result, '_cache_age_seconds', 0.0)
+            self._cashback_last_updated = getattr(cashback_result, 'cache_age_human', 'Unknown')
             
             # Store ALL cashback offers for transparency (not just the best one)
             for offer in cashback_result.offers:
