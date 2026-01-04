@@ -8,12 +8,213 @@
 
 ## 📌 Current Version: `v0.8.0` – Cross-Retailer Comparison, QA & UX Polish
 
-**Status:** 🔄 In Progress  
-**Started:** 2026-01-04  
-**Target Completion:** 2026-01-20  
-**Last Updated:** 2026-01-06
+**Status:** ✅ Complete  
+**Started:** 2026-01-03  
+**Completed:** 2026-01-04  
+**Last Updated:** 2026-01-04
 
-### 🔄 Active Branch: `feature/v0.8-bugfixes`
+---
+
+## 📊 Detailed Version History
+
+---
+
+## 🏷️ v0.7.0 – Data Persistence & User Experience
+**Status:** ✅ Complete  
+**Started:** 2026-01-03  
+**Completed:** 2026-01-04
+
+### Branch: `feature/data-persistence`
+**Created:** 2026-01-03  
+**Merged:** Open  
+**Purpose:** Persistent storage for users, card wallets, and search history
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `5592a8d` | 2026-01-03 | 7 files | SQLite user database with full persistence |
+| `dffddff` | 2026-01-03 | 4 files | RetailerIntelligence integration for cashback caching |
+| `4b41f00` | 2026-01-03 | 5 files | Code review fixes: security, tests, refactoring |
+
+#### Session: 2026-01-03 – Data Persistence Implementation
+
+**Files Created:**
+- `app-frontend/database.py` – SQLite database layer with UserDatabase class
+- `app-frontend/tests/__init__.py` – Test module initialization
+- `app-frontend/tests/test_database.py` – 30+ test cases for database operations
+
+**Files Modified:**
+- `app-frontend/main.py` – Integrated SQLite database for all user operations
+- `app-frontend/requirements.txt` – Added bcrypt for secure password hashing
+- `docker-compose.yml` – Added USER_DB_PATH and DEMO_MODE environment variables
+
+**Key Features Implemented:**
+1. **SQLite User Database:** Full schema with users, user_cards, search_history tables
+2. **Password Hashing:** bcrypt with SHA256 fallback for security
+3. **Card Wallet Persistence:** Users' credit cards saved to database
+4. **Search History Tracking:** Every search saved with results for analytics
+5. **User Settings:** Tax rate and location preferences persist
+6. **Admin Dashboard:** Now shows real user counts from database
+7. **Settings Page Enhanced:** Shows account info, all 50 US states, savings stats
+
+**Database Schema:**
+```sql
+users (id, email, password_hash, is_admin, tax_rate, location, created_at, updated_at)
+user_cards (id, user_id, card_id, name, issuer, base_rate, bonus_categories, is_custom)
+search_history (id, user_id, product_url, product_name, retailer, product_price, net_price, total_savings, best_cashback_platform, best_cashback_rate, searched_at)
+```
+
+**Test Coverage:**
+- Password hashing/verification (5 tests)
+- User CRUD operations (12 tests)
+- Card wallet management (7 tests)
+- Search history tracking (6 tests)
+- Data persistence across reconnects (2 tests)
+
+#### Session: 2026-01-03 – RetailerIntelligence Integration
+
+**Files Modified:**
+- `intelligence-core/cashback/monitor.py` – Cache-first lookup via RetailerIntelligence, stores results after scraping
+- `intelligence-core/optimizer/net_price.py` – Passes cache metadata through optimization result
+- `intelligence-core/api/server.py` – API response includes cache status (from_cache, last_updated)
+- `app-frontend/main.py` – UI shows "Rates updated X hours ago" in Cashback Comparison section
+
+**Key Features Implemented:**
+1. **Cache-First Lookup:** CashbackMonitor checks RetailerIntelligence SQLite/Redis cache before scraping
+2. **Persistent Storage:** Fresh scrape results stored to SQLite database and warmed in Redis
+3. **Cache Metadata:** API response includes `cashback_from_cache` and `cashback_last_updated` fields
+4. **UI Transparency:** Users see when cashback rates were last updated (fresh vs cached)
+5. **Tier-Based TTL:** Major retailers (Amazon, Target) = 4h, standard = 12h, minor = 24h
+
+**Integration Flow:**
+```
+1. User searches for product
+2. CashbackMonitor.find_best_cashback() called
+3. Check RetailerIntelligence cache (Redis → SQLite)
+4. If fresh: return cached data with metadata
+5. If stale/missing: scrape all 5 platforms
+6. Store results to SQLite and warm Redis
+7. Return with cashback_from_cache=false, cashback_last_updated="Just scraped"
+```
+
+#### Session: 2026-01-03 – Code Review Fixes
+
+**Files Modified:**
+- `app-frontend/database.py` – Security fixes and helper refactoring
+- `app-frontend/main.py` – Tax rate clearing fix, state.db None guards
+- `app-frontend/tests/test_database.py` – Additional test coverage
+- `intelligence-core/cashback/monitor.py` – Serialization fix and helper methods
+
+**Security Fixes:**
+1. **DEMO_MODE flag:** `verify_password` now only accepts `$demo$` hashes when `DEMO_MODE` is enabled
+2. **SQL injection prevention:** `update_user_settings` uses parameterized queries instead of string concatenation
+3. **state.db guards:** Protected pages (admin, settings, cards) check for `state.db` existence
+
+**Bug Fixes:**
+1. **Tax rate clearing:** Added `clear_tax_rate=True` parameter to properly set tax_rate to NULL
+2. **Cache serialization:** Replaced `__dict__` with proper `to_dict()` serialization
+
+**Test Coverage Added:**
+- `test_verify_password_malformed_sha256_hash` – Handles malformed/missing hash parts
+- `test_verify_password_malformed_bcrypt_hash` – Handles truncated/corrupted bcrypt
+- `test_verify_password_unknown_format` – Rejects unrecognized hash formats
+- `test_verify_demo_password_with_demo_mode` – Verifies DEMO_MODE gating
+- `test_verify_demo_password_without_demo_mode` – Ensures demo bypass fails in production
+- `test_get_user_savings_stats_empty_history` – Returns safe defaults for empty history
+- `test_get_user_savings_stats_nonexistent_user` – Handles missing user gracefully
+- `test_get_user_database_singleton_returns_same_instance` – Validates singleton pattern
+- `test_get_user_database_uses_env_path` – Validates USER_DB_PATH environment usage
+
+**Refactoring:**
+1. **database.py helpers:** Added `_row_to_user()`, `_row_to_card()`, `_serialize_bonus_categories()`
+2. **MerchantCashback:** Added `set_cache_metadata()` method for cleaner cache handling
+3. **CashbackMonitor helpers:** Extracted `_get_from_intelligence_cache()`, `_scrape_all_platforms()`, `_convert_stored_offer()`
+4. **find_best_cashback:** Reduced complexity from 100+ lines to ~25 lines using helpers
+
+---
+
+### Branch: `feature/price-tracking`
+**Created:** 2026-01-04  
+**Merged:** Open  
+**Purpose:** Implement price tracking over time with history visualization
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `60808fc` | 2026-01-04 | 3 files | Price tracking over time feature |
+
+#### Session: 2026-01-04 – Price Tracking Implementation
+
+**Files Modified:**
+- `app-frontend/database.py` – TrackedProduct/PricePoint dataclasses, 2 new tables, 8 tracking methods
+- `app-frontend/main.py` – Price history UI in results, dedicated /tracking page, navbar links
+- `app-frontend/tests/test_database.py` – 20+ tests for price tracking functionality
+
+**Key Features Implemented:**
+1. **Price History Schema:** TrackedProduct and PricePoint dataclasses for time-series data
+2. **Database Tables:** `tracked_products` and `price_history` with proper indexes
+3. **Automatic Tracking:** Products are tracked on each search with URL as unique key
+4. **Price History Display:** Results page shows lowest/current/highest with drop percentage
+5. **Dedicated Tracking Page:** `/tracking` route shows all tracked products with stats
+6. **Alert Settings:** Target price and alert_enabled fields for future notifications
+7. **Navigation:** "Tracking" link added to navbar (desktop and mobile menu)
+
+**Database Schema (New):**
+```sql
+tracked_products (id, user_id, product_url, product_name, retailer, 
+                  current_price, lowest_price, highest_price, target_price,
+                  alert_enabled, first_tracked_at, last_checked_at)
+price_history (id, product_id, price, net_price, best_cashback_rate, recorded_at)
+```
+
+**Price Tracking API Methods:**
+- `track_product()` – Start/update tracking a product
+- `get_tracked_product()` – Get single product with history
+- `get_user_tracked_products()` – List all tracked products for user
+- `get_product_price_history()` – Get price history for product
+- `update_product_alert()` – Set target price and enable alerts
+- `untrack_product()` – Stop tracking a product
+- `get_products_with_price_drops()` – Get products below target price
+- `get_price_tracking_stats()` – Aggregate stats for user
+
+**UI Features:**
+- Price history expansion in results page with lowest/current/highest stats
+- Price drop percentage indicator ("↓ 15% below highest price")
+- "Currently at lowest tracked price!" indicator with fire icon
+- Recent prices list (last 5 observations with dates)
+- Stats cards: Products Tracked, At Lowest Price, With Alerts
+
+**Test Coverage Added:**
+- `test_track_product_new` – Track a new product
+- `test_track_product_price_update` – Price changes update history and bounds
+- `test_get_tracked_product` / `test_get_tracked_product_not_found`
+- `test_get_user_tracked_products` – List all tracked products
+- `test_get_product_price_history` – Get price history
+- `test_update_product_alert` – Set alert settings
+- `test_untrack_product` – Stop tracking
+- `test_get_products_with_price_drops` – Products below target
+- `test_get_price_tracking_stats` – Aggregate statistics
+- `TestTrackedProductDataclass` – `_calculate_drop_percent()`, `to_dict()`
+- `TestPricePointDataclass` – `to_dict()` serialization
+
+---
+
+#### Tasks Progress:
+
+| Task | Status | Priority |
+|------|--------|----------|
+| SQLite database for user accounts | ✅ | 🔴 Critical |
+| Persist card wallet per user | ✅ | 🔴 Critical |
+| Search history storage | ✅ | 🟡 Medium |
+| Price tracking over time | ✅ | 🟡 Medium |
+| Integrate RetailerIntelligence with frontend | ✅ | 🟡 Medium |
+| User settings persistence (tax rate, location) | ✅ | 🟢 Low |
+
+**Milestone:** User data persists across container restarts
+
+---
 
 | Commit | Date | Description |
 |--------|------|-------------|
