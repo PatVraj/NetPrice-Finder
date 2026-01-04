@@ -31,6 +31,10 @@ SCREENSHOT_QUALITY = int(os.getenv("SCRAPER_SCREENSHOT_QUALITY", 50))
 VIEWPORT_WIDTH = int(os.getenv("SCRAPER_VIEWPORT_WIDTH", 1920))
 VIEWPORT_HEIGHT = int(os.getenv("SCRAPER_VIEWPORT_HEIGHT", 1080))
 
+# Timing delays for page rendering
+RENDER_DELAY_SECONDS = 3  # Wait for JS frameworks (React, Vue) to hydrate
+FALLBACK_RENDER_DELAY_SECONDS = 7  # Extended wait when using fallback load strategy
+
 # Initialize structured logging
 logger = structlog.get_logger()
 
@@ -393,7 +397,7 @@ async def extract_data(request: ExtractRequest):
                     # Wait for JS frameworks to render content (React, Vue, etc.)
                     # Most SPAs need 3-5 seconds after load to hydrate
                     logger.info("Waiting for JS to render...")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(RENDER_DELAY_SECONDS)
                     
                     # Try to dismiss cookie consent popups
                     cookie_selectors = [
@@ -425,7 +429,7 @@ async def extract_data(request: ExtractRequest):
                             continue
                     
                     # Wait a bit more for content to load after dismissing popup
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(RENDER_DELAY_SECONDS)
                     
                 except Exception as e:
                     logger.warning("Load failed, trying domcontentloaded", error=str(e))
@@ -435,7 +439,7 @@ async def extract_data(request: ExtractRequest):
                         wait_until="domcontentloaded", 
                         timeout=30000
                     )
-                    await asyncio.sleep(7)
+                    await asyncio.sleep(FALLBACK_RENDER_DELAY_SECONDS)
             else:
                 await scraper.page.goto(
                     request.url, 
