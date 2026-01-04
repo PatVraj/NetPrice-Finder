@@ -6,7 +6,26 @@
 
 ---
 
-## 🚨 MANDATORY GIT WORKFLOW (Before Updating ROADMAP.md)
+## � PR SIZE LIMITS
+
+**CRITICAL:** Pull requests MUST NOT exceed **150,000 diff characters** (GitHub's review limit).
+
+### Guidelines:
+- If a feature would exceed 150k characters, split into multiple smaller PRs
+- Commit frequently to enable logical PR boundaries
+- Use `git diff --stat` to estimate PR size before pushing
+- Large features should be broken into incremental PRs (e.g., "Part 1: Models", "Part 2: Database", "Part 3: API")
+
+### Checking PR Size:
+```bash
+# Check diff size against main
+git diff main --stat
+git diff main | wc -c  # Character count
+```
+
+---
+
+## �🚨 MANDATORY GIT WORKFLOW (Before Updating ROADMAP.md)
 
 **NEVER commit directly to `main` branch. ALWAYS use feature branches.**
 
