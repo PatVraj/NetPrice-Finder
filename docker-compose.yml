@@ -23,6 +23,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - FIREFLY_API_URL=http://firefly-iii:8080
+      - FIREFLY_API_TOKEN=${FIREFLY_API_TOKEN:-}
       - OLLAMA_API_URL=http://intelligence-core:11434
       - SCRAPER_API_URL=http://scraper-engine:5000
     volumes:
@@ -56,6 +57,9 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all  # Essential for WebGL masquerading
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - ./scraper-engine:/app
       - scraper_data:/app/data
@@ -65,6 +69,7 @@ services:
         condition: service_healthy
     networks:
       - ssip-internal
+      - ssip-public
     deploy:
       resources:
         reservations:
@@ -133,6 +138,7 @@ services:
         condition: service_healthy
     networks:
       - ssip-internal
+      - ssip-public
     restart: unless-stopped
 
   # ===========================================================================
