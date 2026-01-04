@@ -12,6 +12,48 @@
 
 ---
 
+## 🏷️ v0.8.0 – Cross-Retailer Comparison, QA & UX Polish
+**Status:** 🔄 In Progress  
+**Started:** 2026-01-04
+
+### Branch: `feature/v0.8-bugfixes`
+**Created:** 2026-01-04  
+**Merged:** Open  
+**Purpose:** Bug fixes and comprehensive test coverage for QA
+
+#### Commits:
+
+| Commit | Date | Files Changed | Description |
+|--------|------|---------------|-------------|
+| `0364149` | 2026-01-04 | 1 file | Fix `user_tax_rate` AttributeError in User class |
+| `6aaba8c` | 2026-01-04 | 4 files | Bug fixes and test suites for v0.8.0 QA |
+| `f7fc989` | 2026-01-04 | 1 file | Update roadmap with bug fixes and test suites |
+
+#### Session: 2026-01-04 – Bug Fixes & Test Suite Development
+
+**Files Created:**
+- `app-frontend/tests/test_input_validation.py` – 28 tests for email, password, query, tax rate, location validation
+- `intelligence-core/tests/test_error_handling.py` – 36 tests for API error handling and edge cases
+
+**Files Modified:**
+- `app-frontend/database.py` – Added null checks to `get_user_by_email()` and `authenticate_user()`
+- `app-frontend/main.py` – Added `tax_rate` and `location` fields to User dataclass
+- `intelligence-core/api/server.py` – Fixed POPULAR_CARDS iteration, CardInfo validation, health endpoint
+
+**Bugs Fixed:**
+- `authenticate_user` crashes on `None` email → Added null check
+- `get_user_by_email` crashes on `None` email → Added null check  
+- `POPULAR_CARDS` iteration fails (factory vs object) → Fixed to call factory functions
+- `CardInfo` allows empty name / negative rate → Added Pydantic validation
+- `/health` crashes if lifespan not run → Graceful handling of missing state
+
+**Test Coverage Added:**
+- Input validation tests: Email, password, product query, tax rate, location
+- API error handling: Malformed requests, invalid data, wallet operations
+- Authentication edge cases: Null values, timing attack resistance
+
+---
+
 ## 🏷️ v0.7.0 – Data Persistence & User Experience
 **Status:** ✅ Complete  
 **Started:** 2026-01-03  
