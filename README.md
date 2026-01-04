@@ -46,6 +46,13 @@ NetPrice-Finder/
 │   ├── cashback/
 │   │   ├── __init__.py            # Module exports
 │   │   └── monitor.py             # Cashback platform scraper
+│   ├── retailer/                  # Retailer Intelligence System
+│   │   ├── __init__.py            # Module exports
+│   │   ├── models.py              # Data classes & retailer tiers
+│   │   ├── database.py            # SQLite persistence layer
+│   │   ├── cache.py               # Redis hot cache
+│   │   ├── strategy.py            # Stacking rules engine
+│   │   └── intelligence.py        # Main intelligence class
 │   ├── rewards/
 │   │   ├── __init__.py            # Module exports
 │   │   └── schema.py              # Credit card reward engine
@@ -63,7 +70,8 @@ NetPrice-Finder/
 │       └── router.py              # Semantic router
 ├── docs/                          # Documentation
 │   ├── API.md                     # API endpoint documentation
-│   └── FEATURES.md                # Features guide & architecture
+│   ├── FEATURES.md                # Features guide & architecture
+│   └── RETAILER_INTELLIGENCE_DESIGN.md  # Retailer caching system design
 ├── configs/                       # Service configurations
 ├── scripts/
 │   ├── start.sh                   # Linux/Mac quick start

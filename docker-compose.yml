@@ -128,8 +128,10 @@ services:
       - REDIS_PORT=6379
       - OLLAMA_HOST=http://intelligence-core:11434
       - SCRAPER_HOST=http://scraper-engine:5000
+      - RETAILER_DB_PATH=/app/data/retailers.db
     volumes:
       - ./intelligence-core:/app
+      - intelligence_data:/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -234,3 +236,4 @@ volumes:
   firefly_upload:
   mariadb_data:
   redis_data:
+  intelligence_data:  # Persistent storage for retailer intelligence (SQLite)

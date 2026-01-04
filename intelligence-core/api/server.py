@@ -45,6 +45,7 @@ from rewards.schema import (
 )
 from cashback.monitor import CashbackMonitor, CashbackOffer
 from tax.location import TaxCalculator, get_tax_rate_for_ip
+from retailer.intelligence import RetailerIntelligence, get_intelligence
 
 # =============================================================================
 # Configuration
@@ -147,11 +148,22 @@ async def lifespan(app: FastAPI):
     app.state.optimizer = None
     app.state.cashback_monitor = None
     app.state.user_wallet = CardWallet()
+    
+    # Initialize RetailerIntelligence for persistent caching
+    try:
+        app.state.intelligence = await get_intelligence()
+        print("✅ RetailerIntelligence initialized")
+    except Exception as e:
+        print(f"⚠️ RetailerIntelligence init failed: {e}")
+        app.state.intelligence = None
+    
     yield
     # Shutdown
     print("👋 Net Price Finder API shutting down...")
     if app.state.optimizer:
         await app.state.optimizer.__aexit__(None, None, None)
+    if app.state.intelligence:
+        await app.state.intelligence.close()
 
 # =============================================================================
 # FastAPI Application
@@ -402,6 +414,136 @@ async def add_popular_card(card_name: str):
     
     app.state.user_wallet.add_card(card)
     return {"status": "added", "card": card_name, "total_cards": len(app.state.user_wallet.cards)}
+
+
+# =============================================================================
+# Retailer Intelligence Endpoints
+# =============================================================================
+
+@app.get("/api/v1/retailer/{name}/deals")
+async def get_retailer_deals(name: str, force_refresh: bool = False):
+    """
+    Get all cashback and promo deals for a retailer.
+    
+    Returns cached data if available, otherwise triggers fresh scrape.
+    Use force_refresh=true to force a new scrape.
+    """
+    if not app.state.intelligence:
+        raise HTTPException(
+            status_code=503, 
+            detail="RetailerIntelligence not available"
+        )
+    
+    try:
+        deals = await app.state.intelligence.get_deals(
+            name, 
+            force_refresh=force_refresh
+        )
+        return deals.to_dict()
+    except Exception as e:
+        logger.error(f"Error getting deals for {name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/retailer/{name}/strategy")
+async def get_savings_strategy(
+    name: str, 
+    amount: float = 100.0,
+    category: Optional[str] = None,
+):
+    """
+    Get optimal savings strategy for a purchase at a retailer.
+    
+    Args:
+        name: Retailer name
+        amount: Purchase amount in dollars
+        category: Product category for credit card rewards
+    """
+    if not app.state.intelligence:
+        raise HTTPException(
+            status_code=503,
+            detail="RetailerIntelligence not available"
+        )
+    
+    try:
+        strategy = await app.state.intelligence.get_best_strategy(
+            name,
+            purchase_amount=amount,
+            card_wallet=app.state.user_wallet if app.state.user_wallet.cards else None,
+            product_category=category,
+        )
+        return strategy.to_dict()
+    except Exception as e:
+        logger.error(f"Error getting strategy for {name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/retailer/{name}/refresh")
+async def refresh_retailer_data(name: str):
+    """
+    Force refresh all data for a retailer.
+    
+    Triggers fresh scrape of all cashback platforms.
+    """
+    if not app.state.intelligence:
+        raise HTTPException(
+            status_code=503,
+            detail="RetailerIntelligence not available"
+        )
+    
+    try:
+        deals = await app.state.intelligence.refresh_retailer(name)
+        return {
+            "status": "refreshed",
+            "retailer": name,
+            "offers_found": len(deals.cashback_offers),
+            "promos_found": len(deals.promo_codes),
+            "sources": deals.data_sources,
+        }
+    except Exception as e:
+        logger.error(f"Error refreshing {name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/intelligence/stats")
+async def get_intelligence_stats():
+    """Get statistics for the retailer intelligence system."""
+    if not app.state.intelligence:
+        return {
+            "available": False,
+            "message": "RetailerIntelligence not initialized"
+        }
+    
+    try:
+        stats = await app.state.intelligence.get_stats()
+        return {
+            "available": True,
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting intelligence stats: {e}")
+        return {
+            "available": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/v1/intelligence/stale")
+async def get_stale_retailers(max_age_hours: int = 24):
+    """Get list of retailers that need refresh."""
+    if not app.state.intelligence:
+        raise HTTPException(
+            status_code=503,
+            detail="RetailerIntelligence not available"
+        )
+    
+    stale = await app.state.intelligence.get_stale_retailers(max_age_hours)
+    return {
+        "stale_count": len(stale),
+        "retailers": stale[:50],  # Limit to 50
+        "max_age_hours": max_age_hours,
+    }
+
 
 # =============================================================================
 # Main Entry Point

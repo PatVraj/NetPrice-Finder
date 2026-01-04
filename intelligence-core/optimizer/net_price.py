@@ -630,6 +630,12 @@ class NetPriceOptimizer:
         async with NetPriceOptimizer(card_wallet=my_wallet) as optimizer:
             result = await optimizer.optimize("https://nike.com/product/...")
             print(f"Use {result.best_option.recommended_card}")  # From YOUR cards
+        
+        # With RetailerIntelligence for persistent caching
+        from retailer.intelligence import RetailerIntelligence
+        intelligence = RetailerIntelligence()
+        async with NetPriceOptimizer(intelligence=intelligence) as optimizer:
+            result = await optimizer.optimize("https://amazon.com/...")
     """
     
     def __init__(
@@ -637,6 +643,7 @@ class NetPriceOptimizer:
         card_wallet: Optional[Any] = None,  # User's CardWallet (optional)
         enable_coupon_testing: bool = False,  # Disabled by default (slow)
         tax_rate: float = 0.0,  # State sales tax rate
+        intelligence: Optional[Any] = None,  # RetailerIntelligence (optional)
     ):
         """
         Initialize the optimizer.
@@ -647,10 +654,13 @@ class NetPriceOptimizer:
                          Only the user's own cards are considered.
             enable_coupon_testing: Whether to test coupons at checkout (slow)
             tax_rate: Estimated sales tax rate (e.g., 0.0825 for 8.25%)
+            intelligence: OPTIONAL - RetailerIntelligence for persistent caching.
+                          If provided, cashback/promo data is cached in SQLite/Redis.
         """
         self.card_wallet = card_wallet
         self.enable_coupon_testing = enable_coupon_testing
         self.tax_rate = tax_rate
+        self.intelligence = intelligence
         
         self.product_scraper = ProductScraper()
         self.coupon_finder = CouponFinder()
@@ -665,7 +675,10 @@ class NetPriceOptimizer:
         """Lazy load cashback monitor."""
         if self._cashback_monitor is None:
             from cashback.monitor import CashbackMonitor
-            self._cashback_monitor = CashbackMonitor()
+            # If we have intelligence, pass it to cashback monitor
+            self._cashback_monitor = CashbackMonitor(
+                intelligence=self.intelligence
+            )
         return self._cashback_monitor
     
     async def __aenter__(self):

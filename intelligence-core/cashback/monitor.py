@@ -9,12 +9,16 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from datetime import datetime, timedelta
 from enum import Enum
 from urllib.parse import quote_plus
 
 import httpx
+
+# Type checking imports (avoid circular imports)
+if TYPE_CHECKING:
+    from ..retailer.intelligence import RetailerIntelligence
 
 
 # =============================================================================
@@ -936,6 +940,10 @@ class CashbackMonitor:
         async with CashbackMonitor() as monitor:
             result = await monitor.find_best_cashback("Amazon")
             print(f"Best: {result.best_offer.platform} - {result.best_offer.cashback_text}")
+    
+    For persistent caching across restarts, use with RetailerIntelligence:
+        intelligence = RetailerIntelligence()
+        monitor = CashbackMonitor(intelligence=intelligence)
     """
     
     def __init__(
@@ -943,6 +951,7 @@ class CashbackMonitor:
         platforms: Optional[list[CashbackPlatform]] = None,
         timeout: float = 30.0,
         cache_enabled: bool = True,
+        intelligence: Optional["RetailerIntelligence"] = None,
     ):
         """
         Initialize the cashback monitor.
@@ -950,11 +959,13 @@ class CashbackMonitor:
         Args:
             platforms: List of platforms to check (default: all)
             timeout: HTTP request timeout
-            cache_enabled: Whether to cache results
+            cache_enabled: Whether to cache results (in-memory)
+            intelligence: Optional RetailerIntelligence for persistent caching
         """
         self.platforms = platforms or list(CashbackPlatform)
         self.timeout = timeout
         self.cache_enabled = cache_enabled
+        self.intelligence = intelligence
         
         # Initialize scrapers
         self._scrapers = {
@@ -965,7 +976,7 @@ class CashbackMonitor:
             CashbackPlatform.SWAGBUCKS: SwagbucksScraper(),
         }
         
-        # In-memory cache
+        # In-memory cache (backup if intelligence not available)
         self._cache: dict[str, tuple[MerchantCashback, datetime]] = {}
         
         # HTTP client

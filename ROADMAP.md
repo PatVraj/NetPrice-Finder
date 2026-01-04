@@ -296,6 +296,72 @@
 
 ---
 
+#### Session: 2026-01-04 – Retailer Intelligence System
+
+**Commit:** `1290131`  
+**Feature:** Persistent caching system for major retailers with intelligent savings strategies
+
+**Design Document:** `docs/RETAILER_INTELLIGENCE_DESIGN.md`
+
+**Problem Solved:**
+- 🐛 Re-scraping cashback rates every search was inefficient
+- 🐛 No persistent storage for promo codes with context
+- 🐛 Only keeping "best" offer lost stacking opportunities (e.g., PayPal + CC combo)
+- ✨ Added intelligent strategy calculation with stacking rules
+
+**Architecture Decisions:**
+1. **Hybrid Storage:** Redis (hot cache) + SQLite (persistent)
+   - Redis: Fast lookups with tier-based TTL (4h/12h/24h)
+   - SQLite: Long-term storage, avoids coupling with Firefly III's MariaDB
+2. **Tier System:** Major retailers (60+) get priority refresh
+3. **Store ALL Offers:** Keep every cashback/promo for intelligent decision-making
+4. **Stacking Rules:** Defined which savings sources can combine
+
+**Files Created:**
+| File | Description |
+|------|-------------|
+| `docs/RETAILER_INTELLIGENCE_DESIGN.md` | Full architecture specification |
+| `intelligence-core/retailer/__init__.py` | Module exports |
+| `intelligence-core/retailer/models.py` | Data classes (Retailer, StoredCashbackOffer, StoredPromoCode, PaymentBonus, SavingsStrategy, etc.) |
+| `intelligence-core/retailer/database.py` | SQLite persistence layer with full CRUD |
+| `intelligence-core/retailer/cache.py` | Redis hot cache with TTL management |
+| `intelligence-core/retailer/strategy.py` | Stacking rules and strategy calculation |
+| `intelligence-core/retailer/intelligence.py` | Main RetailerIntelligence class |
+
+**Files Modified:**
+| File | Changes |
+|------|---------|
+| `intelligence-core/cashback/monitor.py` | Added optional `intelligence` parameter |
+| `intelligence-core/optimizer/net_price.py` | Added optional `intelligence` parameter |
+| `intelligence-core/api/server.py` | Added 5 new endpoints for retailer intelligence |
+| `docker-compose.yml` | Added `RETAILER_DB_PATH` env var and `intelligence_data` volume |
+
+**New API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/retailer/{name}/deals` | GET | Get all cached deals for a retailer |
+| `/retailer/{name}/strategy` | GET | Calculate optimal savings strategy |
+| `/retailer/{name}/refresh` | POST | Force refresh retailer data |
+| `/intelligence/stats` | GET | Get cache and database statistics |
+| `/intelligence/stale` | GET | List retailers needing refresh |
+
+**Key Classes:**
+- `RetailerIntelligence` – Main unified interface
+- `RetailerDatabase` – SQLite operations
+- `RetailerCache` – Redis caching
+- `StrategyCalculator` – Stacking rules engine
+
+**Stacking Rules Example:**
+```python
+# Conflicts (can't stack)
+Rakuten ↔ TopCashback ↔ Honey Gold ↔ BeFrugal ↔ Swagbucks
+
+# Can Stack
+Cashback + Store Coupon + Credit Card + PayPal/Amex Offers
+```
+
+---
+
 ## 🔮 Future Versions
 
 ### v0.2.0 – Core Infrastructure
@@ -372,5 +438,5 @@ Brief description of what was accomplished.
 ---
 
 <p align="center">
-  <em>Last updated: 2026-01-03 (Testing & Documentation Phase Complete)</em>
+  <em>Last updated: 2026-01-04 (Retailer Intelligence System)</em>
 </p>
