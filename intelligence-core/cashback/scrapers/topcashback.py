@@ -100,6 +100,22 @@ class TopCashbackScraper(BaseScraper):
         "lowes": "lowes",
         "sephora": "sephora",
         "adidas": "adidas",
+        "pandora": "pandora-jewelry",
+        "pandora jewelry": "pandora-jewelry",
+        "ulta": "ulta-beauty",
+        "ulta beauty": "ulta-beauty",
+        "kohl's": "kohls",
+        "kohls": "kohls",
+        "kendra scott": "kendra-scott",
+        "kay jewelers": "kay-jewelers",
+        "zales": "zales",
+        "swarovski": "swarovski",
+    }
+    
+    # Alternative slugs to try if the primary doesn't work
+    SLUG_ALTERNATIVES = {
+        "pandora": ["pandora-jewelry", "pandora"],
+        "ulta": ["ulta-beauty", "ulta"],
     }
     
     async def search(self, merchant: str, client: httpx.AsyncClient) -> list:
@@ -183,29 +199,42 @@ class TopCashbackScraper(BaseScraper):
         from ..monitor import CashbackOffer, CashbackPlatform
         
         offers = []
-        slug = self._get_slug(merchant)
-        merchant_url = f"{self.BASE_URL}/{slug}/"
+        merchant_lower = merchant.lower().strip()
         
-        logger.debug(f"[{self.PLATFORM_NAME}] Browser scraping: {merchant_url}")
+        # Get all slugs to try
+        slugs_to_try = self._get_all_slugs(merchant)
         
-        data = await self._browser_extract(
-            client,
-            merchant_url,
-            self.SELECTORS,
-            wait_for="networkidle",
-        )
+        data = None
+        successful_url = None
         
-        if not data:
+        # Try each slug
+        for slug in slugs_to_try:
+            merchant_url = f"{self.BASE_URL}/{slug}/"
+            logger.debug(f"[{self.PLATFORM_NAME}] Trying: {merchant_url}")
+            
+            data = await self._browser_extract(
+                client,
+                merchant_url,
+                self.SELECTORS,
+                wait_for="networkidle",
+            )
+            
+            if data:
+                body_text = data.get("body_text", "")
+                # Check if this is NOT a 404 page and has meaningful content
+                if not self._is_not_found(body_text) and len(body_text) > 200:
+                    successful_url = merchant_url
+                    logger.debug(f"[{self.PLATFORM_NAME}] Found valid page at {merchant_url}")
+                    break
+        
+        if not data or not successful_url:
+            logger.debug(f"[{self.PLATFORM_NAME}] No valid page found for '{merchant}' (vendor not available)")
             return offers
         
         body_text = data.get("body_text", "")
         html = data.get("html", "")
         extracted = data.get("extracted", {})
-        
-        # Check for 404 page
-        if self._is_not_found(body_text):
-            logger.debug(f"[{self.PLATFORM_NAME}] Page not found for '{merchant}'")
-            return offers
+        merchant_url = successful_url  # Use the successful URL from here on
         
         # Strategy 1: Extract from rate card (.merch-cat__rate)
         rate_card_rate = extracted.get("rate_card_rate", "")
@@ -450,18 +479,55 @@ class TopCashbackScraper(BaseScraper):
         return promos
     
     def _get_slug(self, merchant: str) -> str:
-        """Get URL slug for merchant."""
+        """Get primary URL slug for merchant."""
         merchant_lower = merchant.lower().strip()
         if merchant_lower in self.SLUG_OVERRIDES:
             return self.SLUG_OVERRIDES[merchant_lower]
         return self.make_slug(merchant)
     
+    def _get_all_slugs(self, merchant: str) -> list:
+        """Get all possible URL slugs to try for a merchant."""
+        merchant_lower = merchant.lower().strip()
+        slugs = []
+        
+        # Check for specific alternatives first
+        if merchant_lower in self.SLUG_ALTERNATIVES:
+            slugs.extend(self.SLUG_ALTERNATIVES[merchant_lower])
+        
+        # Add the primary slug
+        primary_slug = self._get_slug(merchant)
+        if primary_slug not in slugs:
+            slugs.append(primary_slug)
+        
+        # Add hyphenated version (TopCashback prefers hyphens)
+        hyphen_slug = merchant.lower().replace(" ", "-").replace("'", "")
+        if hyphen_slug not in slugs:
+            slugs.append(hyphen_slug)
+        
+        # Add no-space version
+        nospace_slug = merchant.lower().replace(" ", "").replace("'", "")
+        if nospace_slug not in slugs:
+            slugs.append(nospace_slug)
+        
+        return slugs
+    
     def _is_not_found(self, body_text: str) -> bool:
-        """Check if page is a 404."""
+        """Check if page is a 404 or vendor not available."""
         lower = body_text.lower()
-        return any(phrase in lower for phrase in [
+        not_found_phrases = [
             "page not found",
+            "page you requested",
             "sorry, the page",
             "we couldn't find",
+            "we could not find",
+            "does not exist",
+            "doesn't exist",
             "404",
-        ])
+            "no longer available",
+            "is not available",
+            "merchant not found",
+            "store not found",
+            "this merchant is currently unavailable",
+            "we found 0 results",  # Search page with no results
+        ]
+        return any(phrase in lower for phrase in not_found_phrases)
